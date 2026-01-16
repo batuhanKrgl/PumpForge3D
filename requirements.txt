@@ -8,9 +8,9 @@ matplotlib>=3.5.0
 # Qt GUI
 PySide6>=6.4.0
 
-# 3D visualization (optional, for future viewer)
-# pyvista>=0.38.0
-# pyvistaqt>=0.9.0
+# 3D visualization
+pyvista>=0.38.0
+pyvistaqt>=0.9.0
 
 # Testing
 pytest>=7.0.0

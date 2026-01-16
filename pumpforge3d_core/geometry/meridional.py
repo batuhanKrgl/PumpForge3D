@@ -11,13 +11,13 @@ from typing import Tuple, List, Optional, Union
 import numpy as np
 from numpy.typing import NDArray
 
-from .bezier import BezierCurve4, StraightLine, ControlPoint
+from .bezier import BezierCurve4, BezierCurve2, StraightLine, ControlPoint
 
 
 class CurveMode(Enum):
     """Mode for edge curves."""
     STRAIGHT = "straight"
-    BEZIER = "bezier"
+    BEZIER = "bezier"  # Uses BezierCurve2 (quadratic, 3 CPs)
 
 
 @dataclass
@@ -175,16 +175,20 @@ class EdgeCurve:
     """
     Leading or trailing edge curve.
     
-    Can be either a straight line or a Bezier curve between hub and tip.
+    Can be either a straight line or a quadratic Bezier curve (3 CPs) between hub and tip.
+    The attachment points on hub/tip curves are controlled by hub_t and tip_t parameters.
     """
     mode: CurveMode = CurveMode.STRAIGHT
-    bezier_curve: Optional[BezierCurve4] = None
+    bezier_curve: Optional[BezierCurve2] = None  # Quadratic Bezier (3 CPs)
     straight_line: Optional[StraightLine] = None
     name: str = ""
     
     # Position along hub and tip curves (0 = inlet, 1 = outlet)
-    hub_position: float = 0.0
-    tip_position: float = 0.0
+    # These define where the edge anchors to the hub/tip meridional curves
+    hub_position: float = 0.0  # Legacy name, kept for compatibility
+    tip_position: float = 0.0  # Legacy name, kept for compatibility
+    hub_t: float = 0.0  # Parameter t on hub curve where edge attaches
+    tip_t: float = 0.0  # Parameter t on tip curve where edge attaches
     
     def evaluate(self, t: float) -> Tuple[float, float]:
         """Evaluate edge curve at parameter t."""
@@ -194,6 +198,29 @@ class EdgeCurve:
             return self.bezier_curve.evaluate(t)
         else:
             raise ValueError("Edge curve not properly initialized")
+    
+    def update_from_meridional(self, hub_curve: BezierCurve4, tip_curve: BezierCurve4):
+        """
+        Update edge endpoints from hub/tip curves using current anchor parameters.
+        
+        Args:
+            hub_curve: The hub meridional curve
+            tip_curve: The tip meridional curve
+        """
+        hub_point = hub_curve.evaluate(self.hub_t)
+        tip_point = tip_curve.evaluate(self.tip_t)
+        
+        if self.mode == CurveMode.STRAIGHT:
+            self.straight_line = StraightLine(hub_point, tip_point, self.name)
+        elif self.mode == CurveMode.BEZIER:
+            if self.bezier_curve is None:
+                self.bezier_curve = BezierCurve2.create_default(hub_point, tip_point, self.name)
+            else:
+                # Update only endpoints, keep middle CP shape
+                self.bezier_curve.control_points[0].z = hub_point[0]
+                self.bezier_curve.control_points[0].r = hub_point[1]
+                self.bezier_curve.control_points[2].z = tip_point[0]
+                self.bezier_curve.control_points[2].r = tip_point[1]
     
     def evaluate_many(self, n: int = 100) -> NDArray[np.float64]:
         """Sample n points along the edge."""
@@ -234,7 +261,19 @@ class EdgeCurve:
         straight_line = None
         
         if mode == CurveMode.BEZIER and "bezier_curve" in data:
-            bezier_curve = BezierCurve4.from_dict(data["bezier_curve"])
+            # Support both old BezierCurve4 and new BezierCurve2 formats
+            curve_data = data["bezier_curve"]
+            if curve_data.get("degree") == 2 or len(curve_data.get("control_points", [])) == 3:
+                bezier_curve = BezierCurve2.from_dict(curve_data)
+            else:
+                # Legacy: convert BezierCurve4 to BezierCurve2
+                cps = curve_data.get("control_points", [])
+                if len(cps) == 5:
+                    # Take P0, P2, P4 to make quadratic
+                    new_cps = [cps[0], cps[2], cps[4]]
+                    bezier_curve = BezierCurve2.from_dict({"control_points": new_cps, "name": curve_data.get("name", "")})
+                else:
+                    bezier_curve = BezierCurve2.from_dict(curve_data)
         elif mode == CurveMode.STRAIGHT and "straight_line" in data:
             straight_line = StraightLine.from_dict(data["straight_line"])
         
@@ -245,6 +284,8 @@ class EdgeCurve:
             name=data.get("name", ""),
             hub_position=data.get("hub_position", 0.0),
             tip_position=data.get("tip_position", 0.0),
+            hub_t=data.get("hub_t", data.get("hub_position", 0.0)),
+            tip_t=data.get("tip_t", data.get("tip_position", 0.0)),
         )
 
 
@@ -270,24 +311,10 @@ class MeridionalContour:
         self._update_edges()
     
     def _update_edges(self):
-        """Update edge endpoints based on hub/tip curves."""
-        # Leading edge at inlet (t=0)
-        hub_le = self.hub_curve.evaluate(self.leading_edge.hub_position)
-        tip_le = self.tip_curve.evaluate(self.leading_edge.tip_position)
-        
-        if self.leading_edge.mode == CurveMode.STRAIGHT:
-            self.leading_edge.straight_line = StraightLine(hub_le, tip_le, "leading")
-        elif self.leading_edge.bezier_curve is None:
-            self.leading_edge.bezier_curve = BezierCurve4.create_default(hub_le, tip_le, "leading")
-        
-        # Trailing edge at outlet (t=1)
-        hub_te = self.hub_curve.evaluate(1.0 - self.trailing_edge.hub_position)
-        tip_te = self.tip_curve.evaluate(1.0 - self.trailing_edge.tip_position)
-        
-        if self.trailing_edge.mode == CurveMode.STRAIGHT:
-            self.trailing_edge.straight_line = StraightLine(hub_te, tip_te, "trailing")
-        elif self.trailing_edge.bezier_curve is None:
-            self.trailing_edge.bezier_curve = BezierCurve4.create_default(hub_te, tip_te, "trailing")
+        """Update edge endpoints based on hub/tip curves using anchor parameters."""
+        # Use update_from_meridional method for consistent behavior
+        self.leading_edge.update_from_meridional(self.hub_curve, self.tip_curve)
+        self.trailing_edge.update_from_meridional(self.hub_curve, self.tip_curve)
     
     @classmethod
     def create_from_dimensions(cls, dims: MainDimensions) -> "MeridionalContour":
@@ -317,14 +344,18 @@ class MeridionalContour:
             name="leading",
             hub_position=0.0,
             tip_position=0.0,
+            hub_t=0.0,  # LE at inlet end of hub curve
+            tip_t=0.0,  # LE at inlet end of tip curve
         )
         
         trailing_edge = EdgeCurve(
             mode=CurveMode.STRAIGHT,
             straight_line=StraightLine(dims.hub_outlet, dims.tip_outlet, "trailing"),
             name="trailing",
-            hub_position=0.0,
-            tip_position=0.0,
+            hub_position=1.0,
+            tip_position=1.0,
+            hub_t=1.0,  # TE at outlet end of hub curve
+            tip_t=1.0,  # TE at outlet end of tip curve
         )
         
         return cls(

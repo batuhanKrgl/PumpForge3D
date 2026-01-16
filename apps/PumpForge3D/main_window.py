@@ -2,35 +2,240 @@
 Main window for PumpForge3D.
 
 Provides the application shell with:
-- Left navigation panel (Steps A-E)
-- Central stacked widget for step panels
-- Right info/warnings panel
-- Status bar
+- Horizontal splitter: [Tab widget] | [3D viewer + object list]
+- Tab widget with Design and Export tabs
+- Undo/Redo support via QUndoStack
+- Fullscreen toggle (F11)
 """
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QSplitter,
-    QTextEdit, QStatusBar, QMessageBox, QButtonGroup,
-    QFrame, QSizePolicy
+    QTabWidget, QSplitter, QStatusBar, QMessageBox,
+    QToolBar, QApplication
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QAction
+from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
-from .steps.step_a_main_dims import StepAMainDims
-from .steps.step_b_meridional import StepBMeridional
-from .steps.step_c_edges import StepCEdges
-from .steps.step_d_views import StepDViews
-from .steps.step_e_export import StepEExport
+from .tabs.design_tab import DesignTab
+from .tabs.export_tab import ExportTab
+from .widgets.viewer_3d import Viewer3DWidget
+from .widgets.object_list import ObjectVisibilityList
+
+
+# Global stylesheet for the application
+STYLE_SHEET = """
+QMainWindow {
+    background-color: #1e1e2e;
+}
+
+QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-family: "Segoe UI", "Inter", sans-serif;
+}
+
+QTabWidget::pane {
+    border: 1px solid #313244;
+    border-radius: 4px;
+    background: #1e1e2e;
+}
+
+QTabBar::tab {
+    background: #313244;
+    color: #a6adc8;
+    padding: 10px 20px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+QTabBar::tab:selected {
+    background: #89b4fa;
+    color: #1e1e2e;
+    font-weight: bold;
+}
+
+QTabBar::tab:hover:!selected {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+QSplitter::handle {
+    background: #313244;
+    width: 4px;
+    height: 4px;
+}
+
+QSplitter::handle:hover {
+    background: #89b4fa;
+}
+
+QScrollArea {
+    border: none;
+    background: transparent;
+}
+
+QGroupBox {
+    border: 1px solid #313244;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 8px;
+    font-weight: bold;
+    color: #cdd6f4;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 4px;
+    color: #89b4fa;
+}
+
+QPushButton {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    padding: 8px 16px;
+    color: #cdd6f4;
+}
+
+QPushButton:hover {
+    background-color: #45475a;
+    border-color: #89b4fa;
+}
+
+QPushButton:pressed {
+    background-color: #585b70;
+}
+
+QToolButton {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    padding: 4px;
+    color: #cdd6f4;
+}
+
+QToolButton:hover {
+    background-color: #45475a;
+    border-color: #89b4fa;
+}
+
+QDoubleSpinBox, QSpinBox, QLineEdit {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #cdd6f4;
+}
+
+QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus {
+    border-color: #89b4fa;
+}
+
+QCheckBox {
+    color: #cdd6f4;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #45475a;
+    background: #313244;
+}
+
+QCheckBox::indicator:checked {
+    background: #89b4fa;
+    border-color: #89b4fa;
+}
+
+QComboBox {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #cdd6f4;
+}
+
+QComboBox:hover {
+    border-color: #89b4fa;
+}
+
+QComboBox::drop-down {
+    border: none;
+    padding-right: 8px;
+}
+
+QTreeWidget {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    color: #cdd6f4;
+}
+
+QTreeWidget::item:selected {
+    background: #313244;
+}
+
+QTextEdit {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    color: #cdd6f4;
+}
+
+QStatusBar {
+    background: #181825;
+    color: #a6adc8;
+}
+
+QMenuBar {
+    background: #181825;
+    color: #cdd6f4;
+}
+
+QMenuBar::item:selected {
+    background: #313244;
+}
+
+QMenu {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    color: #cdd6f4;
+}
+
+QMenu::item:selected {
+    background: #313244;
+}
+
+QToolBar {
+    background: #181825;
+    border: none;
+    spacing: 4px;
+    padding: 4px;
+}
+
+QLabel#title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #89b4fa;
+}
+"""
 
 
 class MainWindow(QMainWindow):
     """
     Main application window.
     
-    Manages the design workflow with step-based navigation.
+    Features:
+    - Unified Design + Export tab layout
+    - Persistent 3D viewer on the right
+    - Undo/Redo support
+    - Fullscreen toggle
     """
     
     design_changed = Signal()
@@ -39,18 +244,25 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         
         self.setWindowTitle("PumpForge3D — Inducer Meridional Designer")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1400, 900)
+        
+        # Apply stylesheet
+        self.setStyleSheet(STYLE_SHEET)
+        
+        # Initialize undo stack
+        self.undo_stack = QUndoStack(self)
         
         # Initialize design
         self.design = InducerDesign.create_default()
         
         # Setup UI
         self._setup_ui()
+        self._setup_toolbar()
         self._setup_menu()
         self._setup_connections()
         
-        # Start with Step A
-        self._navigate_to_step(0)
+        # Show maximized on startup
+        self.showMaximized()
     
     def _setup_ui(self):
         """Create the main UI layout."""
@@ -61,135 +273,84 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # Left navigation panel
-        nav_panel = self._create_nav_panel()
-        main_layout.addWidget(nav_panel)
+        # Main horizontal splitter: [Tabs] | [3D + Objects]
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Main content splitter (steps + info panel)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # LEFT SIDE: Tab widget
+        self.tab_widget = QTabWidget()
         
-        # Step content area
-        self.step_stack = QStackedWidget()
-        self._create_step_widgets()
-        splitter.addWidget(self.step_stack)
+        # Design tab
+        self.design_tab = DesignTab(self.design, undo_stack=self.undo_stack)
+        self.tab_widget.addTab(self.design_tab, "Design")
         
-        # Right info panel
-        info_panel = self._create_info_panel()
-        splitter.addWidget(info_panel)
+        # Export tab (always last)
+        self.export_tab = ExportTab(self.design)
+        self.tab_widget.addTab(self.export_tab, "Export")
         
-        # Set splitter sizes (70% content, 30% info)
-        splitter.setSizes([700, 300])
-        splitter.setStretchFactor(0, 7)
-        splitter.setStretchFactor(1, 3)
+        self.main_splitter.addWidget(self.tab_widget)
         
-        main_layout.addWidget(splitter, 1)
+        # RIGHT SIDE: 3D Viewer + Object list (vertical splitter)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # 3D Viewer
+        self.viewer_3d = Viewer3DWidget(self.design)
+        right_splitter.addWidget(self.viewer_3d)
+        
+        # Object visibility list
+        self.object_list = ObjectVisibilityList()
+        right_splitter.addWidget(self.object_list)
+        
+        # Set right splitter proportions (80% viewer, 20% list)
+        right_splitter.setSizes([600, 150])
+        right_splitter.setStretchFactor(0, 4)
+        right_splitter.setStretchFactor(1, 1)
+        
+        self.main_splitter.addWidget(right_splitter)
+        
+        # Set main splitter proportions (75% tabs, 25% 3D)
+        self.main_splitter.setSizes([1000, 400])
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 1)
+        
+        main_layout.addWidget(self.main_splitter)
         
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
     
-    def _create_nav_panel(self) -> QWidget:
-        """Create the left navigation panel."""
-        nav_widget = QWidget()
-        nav_widget.setFixedWidth(200)
-        nav_widget.setStyleSheet("background-color: #181825;")
+    def _setup_toolbar(self):
+        """Create the toolbar with undo/redo buttons."""
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
         
-        layout = QVBoxLayout(nav_widget)
-        layout.setContentsMargins(12, 16, 12, 16)
-        layout.setSpacing(8)
+        # Undo action
+        self.undo_action = self.undo_stack.createUndoAction(self, "&Undo")
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.setText("↶ Undo")
+        toolbar.addAction(self.undo_action)
         
-        # App title
-        title = QLabel("PumpForge3D")
-        title.setObjectName("title")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        # Redo action
+        self.redo_action = self.undo_stack.createRedoAction(self, "&Redo")
+        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_action.setText("↷ Redo")
+        toolbar.addAction(self.redo_action)
         
-        subtitle = QLabel("Inducer Designer")
-        subtitle.setStyleSheet("color: #a6adc8; font-size: 10px;")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
+        toolbar.addSeparator()
         
-        layout.addSpacing(20)
+        # Fit view
+        fit_action = QAction("⤢ Fit", self)
+        fit_action.setShortcut("F")
+        fit_action.setToolTip("Fit view to geometry")
+        fit_action.triggered.connect(self._fit_view)
+        toolbar.addAction(fit_action)
         
-        # Navigation buttons
-        self.nav_buttons = []
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
-        
-        steps = [
-            ("A", "Main Dimensions", "Define basic geometry bounds"),
-            ("B", "Meridional Contour", "Hub and tip curves"),
-            ("C", "Leading/Trailing Edges", "Edge curves design"),
-            ("D", "Analysis Views", "Curvature and area plots"),
-            ("E", "Export", "Save and load designs"),
-        ]
-        
-        for i, (letter, name, tooltip) in enumerate(steps):
-            btn = QPushButton(f"  {letter}. {name}")
-            btn.setObjectName("navButton")
-            btn.setCheckable(True)
-            btn.setToolTip(tooltip)
-            btn.setMinimumHeight(44)
-            self.nav_group.addButton(btn, i)
-            self.nav_buttons.append(btn)
-            layout.addWidget(btn)
-        
-        layout.addStretch()
-        
-        # Version info at bottom
-        version_label = QLabel("v0.1.0")
-        version_label.setStyleSheet("color: #585b70; font-size: 10px;")
-        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(version_label)
-        
-        return nav_widget
-    
-    def _create_step_widgets(self):
-        """Create and add all step widgets to the stack."""
-        self.step_a = StepAMainDims(self.design)
-        self.step_b = StepBMeridional(self.design)
-        self.step_c = StepCEdges(self.design)
-        self.step_d = StepDViews(self.design)
-        self.step_e = StepEExport(self.design)
-        
-        self.step_stack.addWidget(self.step_a)
-        self.step_stack.addWidget(self.step_b)
-        self.step_stack.addWidget(self.step_c)
-        self.step_stack.addWidget(self.step_d)
-        self.step_stack.addWidget(self.step_e)
-    
-    def _create_info_panel(self) -> QWidget:
-        """Create the right info/warnings panel."""
-        panel = QWidget()
-        panel.setMinimumWidth(250)
-        
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        
-        # Title
-        title = QLabel("Design Info")
-        title.setObjectName("title")
-        layout.addWidget(title)
-        
-        # Info display
-        self.info_display = QTextEdit()
-        self.info_display.setReadOnly(True)
-        self.info_display.setPlaceholderText("Design information will appear here...")
-        layout.addWidget(self.info_display)
-        
-        # Warnings section
-        warnings_title = QLabel("Validation")
-        warnings_title.setObjectName("title")
-        layout.addWidget(warnings_title)
-        
-        self.warnings_display = QTextEdit()
-        self.warnings_display.setReadOnly(True)
-        self.warnings_display.setMaximumHeight(150)
-        self.warnings_display.setPlaceholderText("Validation messages...")
-        layout.addWidget(self.warnings_display)
-        
-        return panel
+        # Reset 3D camera
+        reset_3d_action = QAction("🎥 Reset 3D", self)
+        reset_3d_action.setToolTip("Reset 3D camera")
+        reset_3d_action.triggered.connect(self._reset_3d_camera)
+        toolbar.addAction(reset_3d_action)
     
     def _setup_menu(self):
         """Create the menu bar."""
@@ -222,6 +383,11 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
+        # Edit menu
+        edit_menu = menubar.addMenu("&Edit")
+        edit_menu.addAction(self.undo_action)
+        edit_menu.addAction(self.redo_action)
+        
         # View menu
         view_menu = menubar.addMenu("&View")
         
@@ -229,6 +395,13 @@ class MainWindow(QMainWindow):
         fit_action.setShortcut("F")
         fit_action.triggered.connect(self._fit_view)
         view_menu.addAction(fit_action)
+        
+        view_menu.addSeparator()
+        
+        fullscreen_action = QAction("Toggle &Fullscreen", self)
+        fullscreen_action.setShortcut("F11")
+        fullscreen_action.triggered.connect(self._toggle_fullscreen)
+        view_menu.addAction(fullscreen_action)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -239,96 +412,54 @@ class MainWindow(QMainWindow):
     
     def _setup_connections(self):
         """Connect signals and slots."""
-        # Navigation buttons
-        self.nav_group.idClicked.connect(self._navigate_to_step)
+        # Design tab signals
+        self.design_tab.geometry_changed.connect(self._on_geometry_changed)
+        self.design_tab.dimensions_changed.connect(self._on_dimensions_changed)
         
-        # Step signals
-        self.step_a.dimensions_changed.connect(self._on_dimensions_changed)
-        self.step_b.geometry_changed.connect(self._on_geometry_changed)
-        self.step_c.geometry_changed.connect(self._on_geometry_changed)
-        self.step_e.design_imported.connect(self._on_design_imported)
+        # Export tab signals
+        self.export_tab.design_imported.connect(self._on_design_imported)
+        
+        # Object visibility
+        self.object_list.visibility_changed.connect(self._on_visibility_changed)
+        
+        # Tab change
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
     
-    def _navigate_to_step(self, index: int):
-        """Navigate to a specific step."""
-        self.step_stack.setCurrentIndex(index)
-        self.nav_buttons[index].setChecked(True)
-        
-        step_names = ["Main Dimensions", "Meridional Contour", 
-                      "Leading/Trailing Edges", "Analysis Views", "Export"]
-        self.status_bar.showMessage(f"Step {chr(65+index)}: {step_names[index]}")
-        
-        # Refresh the current step
-        current_widget = self.step_stack.currentWidget()
-        if hasattr(current_widget, 'refresh'):
-            current_widget.refresh()
-        
-        self._update_info_panel()
+    def _on_geometry_changed(self):
+        """Handle geometry change from design tab."""
+        # Update 3D viewer
+        self.viewer_3d.update_geometry(self.design)
+        self.status_bar.showMessage("Geometry updated")
+        self.design_changed.emit()
     
     def _on_dimensions_changed(self):
         """Handle main dimensions change."""
-        # Update contour endpoints
-        self.design.contour.update_from_dimensions(self.design.main_dims)
-        
-        # Refresh dependent steps
-        self.step_b.refresh()
-        self.step_c.refresh()
-        self.step_d.refresh()
-        
-        self._update_info_panel()
-        self.design_changed.emit()
-    
-    def _on_geometry_changed(self):
-        """Handle geometry change from curve editing."""
-        self.step_d.refresh()
-        self._update_info_panel()
+        # Update 3D viewer
+        self.viewer_3d.update_geometry(self.design)
+        self.status_bar.showMessage("Dimensions updated")
         self.design_changed.emit()
     
     def _on_design_imported(self, design: InducerDesign):
         """Handle design import."""
         self.design = design
+        self.undo_stack.clear()
         
-        # Update all steps with new design
-        self.step_a.set_design(design)
-        self.step_b.set_design(design)
-        self.step_c.set_design(design)
-        self.step_d.set_design(design)
-        self.step_e.set_design(design)
+        # Update all components
+        self.design_tab.set_design(design)
+        self.export_tab.set_design(design)
+        self.viewer_3d.set_design(design)
         
-        self._update_info_panel()
-        self.status_bar.showMessage("Design imported successfully")
+        self.status_bar.showMessage(f"Design '{design.name}' imported successfully")
     
-    def _update_info_panel(self):
-        """Update the info and warnings panels."""
-        # Update design info
-        summary = self.design.get_summary()
-        info_text = f"""<b>Design:</b> {summary['name']}<br>
-<b>Units:</b> {summary['units']}<br>
-<br>
-<b>Main Dimensions:</b><br>
-• Axial length: {summary['axial_length']:.1f} {summary['units']}<br>
-• Inlet hub R: {summary['inlet_hub_radius']:.1f} {summary['units']}<br>
-• Inlet tip R: {summary['inlet_tip_radius']:.1f} {summary['units']}<br>
-• Outlet hub R: {summary['outlet_hub_radius']:.1f} {summary['units']}<br>
-• Outlet tip R: {summary['outlet_tip_radius']:.1f} {summary['units']}<br>
-<br>
-<b>Arc Lengths:</b><br>
-• Hub: {summary['hub_arc_length']:.1f} {summary['units']}<br>
-• Tip: {summary['tip_arc_length']:.1f} {summary['units']}
-"""
-        self.info_display.setHtml(info_text)
-        
-        # Update validation
-        is_valid, messages = self.design.validate()
-        
-        if messages:
-            warnings_text = "<br>".join(
-                f"{'⚠️' if 'Warning' in m else '❌' if 'Error' in m else 'ℹ️'} {m}"
-                for m in messages
-            )
-        else:
-            warnings_text = "✅ Design is valid"
-        
-        self.warnings_display.setHtml(warnings_text)
+    def _on_visibility_changed(self, name: str, visible: bool):
+        """Handle object visibility toggle."""
+        self.viewer_3d.set_object_visibility(name, visible)
+    
+    def _on_tab_changed(self, index: int):
+        """Handle tab change."""
+        tab_names = ["Design", "Export"]
+        if 0 <= index < len(tab_names):
+            self.status_bar.showMessage(f"{tab_names[index]} tab")
     
     def _new_design(self):
         """Create a new design."""
@@ -340,22 +471,32 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.StandardButton.Yes:
             self.design = InducerDesign.create_default()
+            self.undo_stack.clear()
             self._on_design_imported(self.design)
-            self._navigate_to_step(0)
+            self.tab_widget.setCurrentIndex(0)
     
     def _open_design(self):
         """Open a design file."""
-        self.step_e._import_design()
+        self.export_tab.import_design()
     
     def _save_design(self):
         """Save the current design."""
-        self.step_e._export_json()
+        self.export_tab.export_json()
     
     def _fit_view(self):
         """Fit the current diagram view."""
-        current_widget = self.step_stack.currentWidget()
-        if hasattr(current_widget, 'fit_view'):
-            current_widget.fit_view()
+        self.design_tab.fit_view()
+    
+    def _reset_3d_camera(self):
+        """Reset 3D viewer camera."""
+        self.viewer_3d.reset_camera()
+    
+    def _toggle_fullscreen(self):
+        """Toggle fullscreen mode."""
+        if self.isFullScreen():
+            self.showMaximized()
+        else:
+            self.showFullScreen()
     
     def _show_about(self):
         """Show the about dialog."""
@@ -363,7 +504,14 @@ class MainWindow(QMainWindow):
             self, "About PumpForge3D",
             "<h2>PumpForge3D</h2>"
             "<p>Inducer Meridional Designer</p>"
-            "<p>Version 0.1.0</p>"
+            "<p>Version 0.2.0</p>"
             "<p>A modular tool for inducer geometry design, "
             "inspired by CFturbo workflow principles.</p>"
+            "<p><b>Features:</b></p>"
+            "<ul>"
+            "<li>Interactive Bezier curve editing</li>"
+            "<li>Real-time 3D visualization</li>"
+            "<li>Undo/Redo support</li>"
+            "<li>Versioned JSON export</li>"
+            "</ul>"
         )

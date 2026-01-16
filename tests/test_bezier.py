@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_almost_equal
 
 from pumpforge3d_core.geometry.bezier import (
-    BezierCurve4, ControlPoint, StraightLine, _bernstein
+    BezierCurve4, BezierCurve2, ControlPoint, StraightLine, _bernstein
 )
 
 
@@ -191,3 +191,72 @@ class TestStraightLine:
     def test_arc_length(self):
         line = StraightLine((0, 0), (3, 4))
         assert_almost_equal(line.compute_arc_length(), 5.0)
+
+
+class TestBezierCurve2:
+    """Test quadratic (2nd-order) Bezier curve."""
+    
+    @pytest.fixture
+    def simple_curve(self):
+        """A simple quadratic curve."""
+        points = [(0, 10), (40, 15), (80, 10)]
+        return BezierCurve2.from_points(points, name="test")
+    
+    def test_from_points_length(self, simple_curve):
+        """Curve should have exactly 3 control points."""
+        assert len(simple_curve.control_points) == 3
+    
+    def test_from_points_invalid(self):
+        """Should raise error for wrong number of points."""
+        with pytest.raises(ValueError):
+            BezierCurve2.from_points([(0, 0), (1, 1)])
+    
+    def test_endpoints_locked(self, simple_curve):
+        """Endpoints should be locked by default."""
+        assert simple_curve.control_points[0].is_locked
+        assert simple_curve.control_points[2].is_locked
+        assert not simple_curve.control_points[1].is_locked
+    
+    def test_evaluate_endpoints(self, simple_curve):
+        """Curve should pass through endpoints."""
+        p0 = simple_curve.evaluate(0.0)
+        p2 = simple_curve.evaluate(1.0)
+        
+        assert_almost_equal(p0, (0.0, 10.0))
+        assert_almost_equal(p2, (80.0, 10.0))
+    
+    def test_evaluate_many(self, simple_curve):
+        """evaluate_many should return correct number of points."""
+        points = simple_curve.evaluate_many(50)
+        assert points.shape == (50, 2)
+        
+        # First and last should match endpoints
+        assert_almost_equal(points[0], [0.0, 10.0])
+        assert_almost_equal(points[-1], [80.0, 10.0])
+    
+    def test_create_default(self):
+        """create_default should create valid intermediate point."""
+        curve = BezierCurve2.create_default((0, 10), (100, 50), name="default")
+        
+        assert len(curve.control_points) == 3
+        assert curve.control_points[0].z == 0
+        assert curve.control_points[2].z == 100
+        
+        # Check middle point is between endpoints
+        pt = curve.control_points[1]
+        assert 0 < pt.z < 100
+    
+    def test_serialization_roundtrip(self, simple_curve):
+        """to_dict/from_dict should preserve curve."""
+        data = simple_curve.to_dict()
+        restored = BezierCurve2.from_dict(data)
+        
+        assert restored.name == simple_curve.name
+        assert len(restored.control_points) == 3
+        
+        for i in range(3):
+            orig = simple_curve.control_points[i]
+            rest = restored.control_points[i]
+            assert_almost_equal(orig.z, rest.z)
+            assert_almost_equal(orig.r, rest.r)
+

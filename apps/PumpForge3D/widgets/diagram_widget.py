@@ -72,6 +72,11 @@ class DiagramWidget(QWidget):
         self.show_grid = True
         self.show_control_points = True
         self.show_control_polygon = True
+        self.show_edge_anchors = True  # Show edge attachment points on hub/tip
+        
+        # Constraint options
+        self.use_bounding_box = False  # If True, constrain CP movement to bounding box
+        self.bbox_margin = 0.9  # CP stays within 90% of current bbox
         
         self._setup_ui()
         self._setup_plot()
@@ -205,6 +210,10 @@ class DiagramWidget(QWidget):
                 self._draw_control_points('trailing',
                     self.design.contour.trailing_edge.bezier_curve, '#cba6f7')
         
+        # Draw edge anchor markers (on hub/tip curves)
+        if self.show_edge_anchors:
+            self._draw_edge_anchors()
+        
         # Draw measure line if active
         if self._measure_line:
             self.ax.plot(*zip(*self._measure_line), 'r--', linewidth=1)
@@ -249,6 +258,36 @@ class DiagramWidget(QWidget):
                         markeredgecolor=edge_color,
                         markeredgewidth=2 if is_selected or is_hovered else 1,
                         picker=True)
+    
+    def _draw_edge_anchors(self):
+        """Draw draggable anchor markers where edges attach to hub/tip."""
+        contour = self.design.contour
+        
+        # Leading edge anchors
+        le_hub_pt = contour.hub_curve.evaluate(contour.leading_edge.hub_t)
+        le_tip_pt = contour.tip_curve.evaluate(contour.leading_edge.tip_t)
+        
+        # Trailing edge anchors  
+        te_hub_pt = contour.hub_curve.evaluate(contour.trailing_edge.hub_t)
+        te_tip_pt = contour.tip_curve.evaluate(contour.trailing_edge.tip_t)
+        
+        # Draw anchor markers (diamonds)
+        anchors = [
+            ('le_hub', le_hub_pt, '#f5c2e7'),
+            ('le_tip', le_tip_pt, '#f5c2e7'),
+            ('te_hub', te_hub_pt, '#cba6f7'),
+            ('te_tip', te_tip_pt, '#cba6f7'),
+        ]
+        
+        for name, (z, r), color in anchors:
+            is_hovered = (self._hover_curve == name)
+            size = 10 if is_hovered else 7
+            self.ax.plot(z, r, 'D',  # Diamond marker
+                        markersize=size,
+                        markerfacecolor=color,
+                        markeredgecolor='#ffffff' if is_hovered else color,
+                        markeredgewidth=2 if is_hovered else 1,
+                        alpha=0.8)
     
     def fit_view(self):
         """Fit the view to show all geometry."""
@@ -324,10 +363,23 @@ class DiagramWidget(QWidget):
         self.coords_label.setText(f"Z: {event.xdata:.2f}, R: {event.ydata:.2f}")
         
         if self._dragging and self._selected_curve and self._selected_point is not None:
-            # Update control point position
+            # Update control point position with constraints
             curve = self._get_curve(self._selected_curve)
             if curve and not curve.control_points[self._selected_point].is_locked:
-                curve.set_point(self._selected_point, event.xdata, event.ydata)
+                new_z, new_r = event.xdata, event.ydata
+                
+                # Apply bounding box constraint
+                if self.use_bounding_box:
+                    new_z, new_r = self._apply_bbox_constraint(new_z, new_r)
+                
+                # Apply angle lock constraint
+                pt = curve.control_points[self._selected_point]
+                if pt.angle_locked and self._selected_point in [1, 3]:
+                    new_z, new_r = self._apply_angle_constraint(
+                        curve, self._selected_point, new_z, new_r
+                    )
+                
+                curve.set_point(self._selected_point, new_z, new_r)
                 self.update_plot()
         
         elif self._measuring and self._measure_start:
@@ -422,6 +474,71 @@ class DiagramWidget(QWidget):
         elif curve_name == 'trailing':
             return self.design.contour.trailing_edge.bezier_curve
         return None
+    
+    def _apply_bbox_constraint(self, z: float, r: float) -> Tuple[float, float]:
+        """Constrain point to bounding box of current geometry."""
+        samples = self.design.contour.get_all_sample_points(50)
+        all_pts = np.vstack([samples['hub'], samples['tip']])
+        
+        z_min, z_max = all_pts[:, 0].min(), all_pts[:, 0].max()
+        r_min, r_max = all_pts[:, 1].min(), all_pts[:, 1].max()
+        
+        # Apply margin
+        m = self.bbox_margin
+        z_center = (z_min + z_max) / 2
+        r_center = (r_min + r_max) / 2
+        z_half = (z_max - z_min) / 2 * m
+        r_half = (r_max - r_min) / 2 * m
+        
+        # Clamp
+        z = max(z_center - z_half, min(z, z_center + z_half))
+        r = max(r_center - r_half, min(r, r_center + r_half))
+        
+        return z, r
+    
+    def _apply_angle_constraint(
+        self, curve: BezierCurve4, idx: int, z: float, r: float
+    ) -> Tuple[float, float]:
+        """
+        Constrain point movement to preserve tangent angle.
+        
+        For P1: move along line from P0
+        For P3: move along line from P4
+        """
+        points = curve.get_control_array()
+        
+        if idx == 1:
+            anchor = points[0]  # P0
+        elif idx == 3:
+            anchor = points[4]  # P4
+        else:
+            return z, r
+        
+        # Direction from anchor to current target
+        dz = z - anchor[0]
+        dr = r - anchor[1]
+        
+        # Get original direction
+        pt = curve.control_points[idx]
+        orig_dz = pt.z - anchor[0]
+        orig_dr = pt.r - anchor[1]
+        
+        # If no original direction, just use target
+        orig_len = np.sqrt(orig_dz**2 + orig_dr**2)
+        if orig_len < 1e-9:
+            return z, r
+        
+        # Normalize original direction
+        dir_z = orig_dz / orig_len
+        dir_r = orig_dr / orig_len
+        
+        # Project new position onto the line
+        projection = dz * dir_z + dr * dir_r
+        
+        new_z = anchor[0] + projection * dir_z
+        new_r = anchor[1] + projection * dir_r
+        
+        return new_z, new_r
     
     def _show_context_menu(self, event):
         """Show context menu based on click location."""

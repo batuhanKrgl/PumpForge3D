@@ -404,3 +404,222 @@ class StraightLine:
             p1=tuple(data["p1"]),
             name=data.get("name", ""),
         )
+
+
+@dataclass
+class BezierCurve2:
+    """
+    2nd-order (quadratic) Bezier curve defined by 3 control points.
+    
+    The curve is parameterized by t in [0, 1]:
+    C(t) = sum_{i=0}^{2} B_{i,2}(t) * P_i
+    
+    Used for leading/trailing edge curves in Bezier mode.
+    
+    Attributes:
+        control_points: List of 3 ControlPoint objects (P0, P1, P2)
+        name: Optional identifier for this curve
+    """
+    control_points: List[ControlPoint] = field(default_factory=list)
+    name: str = ""
+    
+    def __post_init__(self):
+        """Validate control points."""
+        if len(self.control_points) != 3:
+            raise ValueError(f"BezierCurve2 requires exactly 3 control points, got {len(self.control_points)}")
+    
+    @classmethod
+    def from_points(
+        cls,
+        points: List[Tuple[float, float]],
+        name: str = "",
+        endpoints_locked: bool = True
+    ) -> "BezierCurve2":
+        """
+        Create a quadratic Bezier curve from a list of 3 (z, r) tuples.
+        
+        Args:
+            points: List of 3 (z, r) coordinate pairs
+            name: Optional curve identifier
+            endpoints_locked: If True, P0 and P2 are locked
+        
+        Returns:
+            BezierCurve2 instance
+        """
+        if len(points) != 3:
+            raise ValueError(f"Expected 3 points, got {len(points)}")
+        
+        control_points = []
+        for i, (z, r) in enumerate(points):
+            is_locked = endpoints_locked and (i == 0 or i == 2)
+            control_points.append(ControlPoint(z=z, r=r, is_locked=is_locked))
+        
+        return cls(control_points=control_points, name=name)
+    
+    @classmethod
+    def create_default(
+        cls,
+        p0: Tuple[float, float],
+        p2: Tuple[float, float],
+        name: str = ""
+    ) -> "BezierCurve2":
+        """
+        Create a default quadratic Bezier with P1 at midpoint.
+        
+        Args:
+            p0: Start point (z, r)
+            p2: End point (z, r)
+            name: Optional curve identifier
+        
+        Returns:
+            BezierCurve2 instance
+        """
+        z0, r0 = p0
+        z2, r2 = p2
+        
+        # P1 at midpoint
+        p1 = (z0 + 0.5 * (z2 - z0), r0 + 0.5 * (r2 - r0))
+        
+        return cls.from_points([p0, p1, p2], name=name, endpoints_locked=True)
+    
+    def get_point(self, index: int) -> ControlPoint:
+        """Get control point by index (0-2)."""
+        return self.control_points[index]
+    
+    def set_point(self, index: int, z: float, r: float) -> bool:
+        """
+        Set a control point's position.
+        
+        Returns False if the point is locked and cannot be moved.
+        """
+        pt = self.control_points[index]
+        if pt.is_locked:
+            return False
+        pt.z = z
+        pt.r = r
+        return True
+    
+    def get_control_array(self) -> NDArray[np.float64]:
+        """Return control points as Nx2 numpy array."""
+        return np.array([pt.to_tuple() for pt in self.control_points], dtype=np.float64)
+    
+    def evaluate(self, t: float) -> Tuple[float, float]:
+        """
+        Evaluate the curve at parameter t.
+        
+        Args:
+            t: Parameter in [0, 1]
+        
+        Returns:
+            (z, r) coordinates at parameter t
+        """
+        t = np.clip(t, 0.0, 1.0)
+        points = self.get_control_array()
+        
+        result = np.zeros(2, dtype=np.float64)
+        for i in range(3):
+            result += _bernstein(2, i, t) * points[i]
+        
+        return (float(result[0]), float(result[1]))
+    
+    def evaluate_many(self, n: int = 100) -> NDArray[np.float64]:
+        """
+        Sample n points along the curve.
+        
+        Args:
+            n: Number of sample points
+        
+        Returns:
+            Array of shape (n, 2) with (z, r) coordinates
+        """
+        t_values = np.linspace(0.0, 1.0, n)
+        points = self.get_control_array()
+        
+        result = np.zeros((n, 2), dtype=np.float64)
+        for i in range(3):
+            coeffs = np.array([_bernstein(2, i, t) for t in t_values])
+            result += np.outer(coeffs, points[i])
+        
+        return result
+    
+    def evaluate_derivative(self, t: float) -> Tuple[float, float]:
+        """
+        Compute first derivative (tangent) at parameter t.
+        
+        Args:
+            t: Parameter in [0, 1]
+        
+        Returns:
+            (dz/dt, dr/dt) derivative components
+        """
+        t = np.clip(t, 0.0, 1.0)
+        points = self.get_control_array()
+        
+        result = np.zeros(2, dtype=np.float64)
+        for i in range(3):
+            result += _bernstein_derivative(2, i, t) * points[i]
+        
+        return (float(result[0]), float(result[1]))
+    
+    def compute_curvature(self, t: float) -> float:
+        """
+        Compute signed curvature at parameter t.
+        
+        Args:
+            t: Parameter in [0, 1]
+        
+        Returns:
+            Signed curvature value
+        """
+        dz, dr = self.evaluate_derivative(t)
+        
+        # For quadratic Bezier, second derivative is constant
+        points = self.get_control_array()
+        ddz = 2 * (points[0, 0] - 2 * points[1, 0] + points[2, 0])
+        ddr = 2 * (points[0, 1] - 2 * points[1, 1] + points[2, 1])
+        
+        cross = dz * ddr - dr * ddz
+        speed_sq = dz * dz + dr * dr
+        
+        if speed_sq < 1e-12:
+            return 0.0
+        
+        return cross / (speed_sq ** 1.5)
+    
+    def compute_arc_length(self, n: int = 100) -> float:
+        """Compute approximate arc length."""
+        points = self.evaluate_many(n)
+        diffs = np.diff(points, axis=0)
+        segment_lengths = np.sqrt(np.sum(diffs ** 2, axis=1))
+        return float(np.sum(segment_lengths))
+    
+    def to_dict(self) -> dict:
+        """Serialize to dictionary for JSON export."""
+        return {
+            "name": self.name,
+            "degree": 2,
+            "control_points": [
+                {
+                    "z": pt.z,
+                    "r": pt.r,
+                    "is_normalized": pt.is_normalized,
+                    "is_locked": pt.is_locked,
+                }
+                for pt in self.control_points
+            ]
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "BezierCurve2":
+        """Deserialize from dictionary."""
+        control_points = [
+            ControlPoint(
+                z=pt["z"],
+                r=pt["r"],
+                is_normalized=pt.get("is_normalized", False),
+                is_locked=pt.get("is_locked", False),
+            )
+            for pt in data["control_points"]
+        ]
+        return cls(control_points=control_points, name=data.get("name", ""))
+
