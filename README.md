@@ -23,6 +23,47 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Offline Installation
+
+For users without internet access, the project supports offline installation using pre-downloaded wheel files.
+
+### Step 1: Prepare Wheel Files (requires internet - do this once)
+
+On a machine with internet access, download all dependencies:
+
+```powershell
+# Windows (x64)
+pip download -r requirements.txt -d whls --only-binary=:all:
+```
+
+This creates a `whls/` folder containing all required wheel files (~300MB).
+
+> **Note:** Wheel files are platform-specific. Download on the same OS/architecture as the target machine.
+
+### Step 2: Install Offline
+
+Copy the entire project folder (including `whls/`) to the offline machine, then run:
+
+**Windows:**
+```powershell
+.\install_offline.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x install_offline.sh
+./install_offline.sh
+```
+
+**Or manually:**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --no-index --find-links=whls -r requirements.txt
+```
+
+> **Important:** The `whls/` folder is excluded from git due to file size limits. You must download wheel files manually before offline installation.
+
 ## Running the Application
 
 ```powershell

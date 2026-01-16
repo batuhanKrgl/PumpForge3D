@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Offline wheel files (too large for GitHub)
+# Users can download these using: pip download -r requirements.txt -d whls --only-binary=:all:
+whls/
+whls.zip
+
+# OS generated files
+.DS_Store
+Thumbs.db
