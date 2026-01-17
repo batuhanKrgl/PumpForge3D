@@ -63,6 +63,7 @@ class DiagramWidget(QWidget):
         self._selected_curve: Optional[str] = None
         self._selected_point: Optional[int] = None
         self._dragging = False
+        self._dragging_anchor: Optional[str] = None  # 'le_hub', 'le_tip', 'te_hub', 'te_tip'
         self._measuring = False
         self._measure_start: Optional[Tuple[float, float]] = None
         self._hover_curve: Optional[str] = None
@@ -74,6 +75,10 @@ class DiagramWidget(QWidget):
         self.show_control_polygon = True
         self.show_edge_anchors = True  # Show edge attachment points on hub/tip
         
+        # Mode options
+        self.pan_mode = False  # When True, mouse drag pans, CP drag disabled
+        self._pan_start = None  # (x, y) for pan start
+        
         # Constraint options
         self.use_bounding_box = False  # If True, constrain CP movement to bounding box
         self.bbox_margin = 0.9  # CP stays within 90% of current bbox
@@ -84,32 +89,74 @@ class DiagramWidget(QWidget):
     
     def _setup_ui(self):
         """Create the widget UI."""
+        from PySide6.QtWidgets import QSizePolicy, QToolButton
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(0)
         
-        # Toolbar
+        # Toolbar with controls
         toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(4, 4, 4, 2)
         toolbar.setSpacing(4)
         
-        fit_btn = QPushButton("Fit View")
-        fit_btn.setMaximumWidth(80)
+        # Fit View
+        fit_btn = QToolButton()
+        fit_btn.setText("⤢")
+        fit_btn.setToolTip("Fit View")
+        fit_btn.setFixedSize(28, 24)
         fit_btn.clicked.connect(self.fit_view)
         toolbar.addWidget(fit_btn)
         
-        self.coords_label = QLabel("Z: --, R: --")
-        self.coords_label.setStyleSheet("color: #a6adc8; font-size: 10px;")
-        toolbar.addWidget(self.coords_label)
+        # Note: Pan via middle mouse button (matplotlib style)
+        
+        toolbar.addWidget(QLabel(" | "))
+        
+        # Grid toggle
+        self.grid_btn = QToolButton()
+        self.grid_btn.setText("☐")
+        self.grid_btn.setToolTip("Toggle Grid")
+        self.grid_btn.setCheckable(True)
+        self.grid_btn.setChecked(True)
+        self.grid_btn.setFixedSize(28, 24)
+        self.grid_btn.toggled.connect(lambda c: setattr(self, 'show_grid', c) or self.update_plot())
+        toolbar.addWidget(self.grid_btn)
+        
+        # Control points toggle
+        self.cp_btn = QToolButton()
+        self.cp_btn.setText("◉")
+        self.cp_btn.setToolTip("Toggle Control Points")
+        self.cp_btn.setCheckable(True)
+        self.cp_btn.setChecked(True)
+        self.cp_btn.setFixedSize(28, 24)
+        self.cp_btn.toggled.connect(lambda c: setattr(self, 'show_control_points', c) or self.update_plot())
+        toolbar.addWidget(self.cp_btn)
+        
+        # Control polygon toggle
+        self.polygon_btn = QToolButton()
+        self.polygon_btn.setText("🔗")
+        self.polygon_btn.setToolTip("Toggle Control Polygon")
+        self.polygon_btn.setCheckable(True)
+        self.polygon_btn.setChecked(True)
+        self.polygon_btn.setFixedSize(28, 24)
+        self.polygon_btn.toggled.connect(lambda c: setattr(self, 'show_control_polygon', c) or self.update_plot())
+        toolbar.addWidget(self.polygon_btn)
         
         toolbar.addStretch()
         
+        # Coordinate display
+        self.coords_label = QLabel("Z: --, R: --")
+        self.coords_label.setStyleSheet("color: #a6adc8; font-size: 10px; padding-right: 8px;")
+        toolbar.addWidget(self.coords_label)
+        
         layout.addLayout(toolbar)
         
-        # Matplotlib figure
+        # Matplotlib figure - maximize size
         self.figure = Figure(figsize=(8, 6), dpi=100, facecolor='#181825')
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setStyleSheet("background-color: #181825;")
-        layout.addWidget(self.canvas, 1)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.canvas, 1)  # stretch factor 1
         
     def _setup_plot(self):
         """Initialize the matplotlib plot."""
@@ -223,7 +270,13 @@ class DiagramWidget(QWidget):
                       facecolor='#313244', edgecolor='#45475a',
                       labelcolor='#cdd6f4')
         
-        self.ax.set_aspect('equal')
+        # Equal aspect ratio but fill space by adjusting axis limits (CAD-style)
+        # This extends the axis limits to match widget aspect ratio
+        self.ax.set_aspect('equal', adjustable='datalim')
+        
+        # Force the figure to fill available space
+        self.figure.tight_layout(pad=0.5)
+        self.figure.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.1)
         self.canvas.draw()
     
     def _draw_control_points(self, curve_name: str, curve: BezierCurve4, color: str):
@@ -310,9 +363,24 @@ class DiagramWidget(QWidget):
         
         self.canvas.draw()
     
+    def _toggle_pan_mode(self, enabled: bool):
+        """Toggle pan mode on/off."""
+        self.pan_mode = enabled
+        self._pan_start = None
+        # Visual feedback
+        if enabled:
+            self.canvas.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.canvas.setCursor(Qt.CursorShape.ArrowCursor)
+    
     def _on_mouse_press(self, event):
         """Handle mouse press event."""
         if event.inaxes != self.ax:
+            return
+        
+        if event.button == 2:  # Middle click = pan
+            self._pan_start = (event.xdata, event.ydata)
+            self.canvas.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         
         if event.button == 1:  # Left click
@@ -320,22 +388,38 @@ class DiagramWidget(QWidget):
                 self._measure_start = (event.xdata, event.ydata)
                 return
             
-            # Try to pick a control point
+            # Try to pick a control point or edge anchor
             curve, idx = self._pick_control_point(event.xdata, event.ydata)
+            anchor_name = self._pick_edge_anchor(event.xdata, event.ydata)
+            
             if curve and idx is not None:
+                # Dragging a control point
                 self._selected_curve = curve
                 self._selected_point = idx
                 self._dragging = True
+                self._dragging_anchor = None
                 self.point_selected.emit(curve, idx)
                 self.update_plot()
+            elif anchor_name:
+                # Dragging an edge anchor
+                self._dragging_anchor = anchor_name
+                self._dragging = True
+                self._selected_curve = None
+                self._selected_point = None
         
         elif event.button == 3:  # Right click
             self._show_context_menu(event)
     
     def _on_mouse_release(self, event):
         """Handle mouse release event."""
+        if self._pan_start:
+            self._pan_start = None
+            self.canvas.setCursor(Qt.CursorShape.ArrowCursor)
+            return
+        
         if self._dragging:
             self._dragging = False
+            self._dragging_anchor = None
             self.geometry_changed.emit()
         
         if self._measuring and self._measure_start and event.inaxes == self.ax:
@@ -362,6 +446,20 @@ class DiagramWidget(QWidget):
         # Update coordinate display
         self.coords_label.setText(f"Z: {event.xdata:.2f}, R: {event.ydata:.2f}")
         
+        # Pan - move view (middle button drag)
+        if self._pan_start:
+            dx = self._pan_start[0] - event.xdata
+            dy = self._pan_start[1] - event.ydata
+            
+            xlim = self.ax.get_xlim()
+            ylim = self.ax.get_ylim()
+            
+            self.ax.set_xlim(xlim[0] + dx, xlim[1] + dx)
+            self.ax.set_ylim(ylim[0] + dy, ylim[1] + dy)
+            
+            self.canvas.draw()
+            return
+        
         if self._dragging and self._selected_curve and self._selected_point is not None:
             # Update control point position with constraints
             curve = self._get_curve(self._selected_curve)
@@ -380,7 +478,46 @@ class DiagramWidget(QWidget):
                     )
                 
                 curve.set_point(self._selected_point, new_z, new_r)
+                
+                # Recompute edge curves when hub/tip changes
+                if self._selected_curve in ['hub', 'tip']:
+                    contour = self.design.contour
+                    contour.leading_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+                    contour.trailing_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+                
+                # Constrain LE/TE endpoints (P0, P2) to stay on hub/tip curves
+                if self._selected_curve in ['leading', 'trailing'] and self._selected_point in [0, 2]:
+                    contour = self.design.contour
+                    # P0 = hub endpoint, P2 = tip endpoint
+                    target_curve = contour.hub_curve if self._selected_point == 0 else contour.tip_curve
+                    
+                    # Find closest t on curve
+                    best_t = 0.0
+                    min_dist = float('inf')
+                    for t in np.linspace(0, 1, 100):
+                        pos = target_curve.evaluate(t)
+                        dist = (pos[0] - new_z)**2 + (pos[1] - new_r)**2
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_t = t
+                    
+                    # Snap endpoint to curve
+                    snapped = target_curve.evaluate(best_t)
+                    curve.set_point(self._selected_point, snapped[0], snapped[1])
+                    
+                    # Update the edge anchor t value
+                    edge = contour.leading_edge if self._selected_curve == 'leading' else contour.trailing_edge
+                    if self._selected_point == 0:
+                        edge.hub_t = best_t
+                    else:
+                        edge.tip_t = best_t
+                
                 self.update_plot()
+        
+        elif self._dragging and self._dragging_anchor:
+            # Drag edge anchor along hub/tip curve
+            self._update_edge_anchor(self._dragging_anchor, event.xdata, event.ydata)
+            self.update_plot()
         
         elif self._measuring and self._measure_start:
             # Update measure line
@@ -455,6 +592,10 @@ class DiagramWidget(QWidget):
         
         for curve_name, curve in curves:
             for i, pt in enumerate(curve.control_points):
+                # Skip hub/tip endpoints (P0, P4) - they conflict with edge anchors
+                if curve_name in ['hub', 'tip'] and i in [0, len(curve.control_points) - 1]:
+                    continue
+                    
                 dist = np.sqrt((x - pt.z)**2 + (y - pt.r)**2)
                 if dist < min_dist and dist < tol:
                     min_dist = dist
@@ -475,24 +616,106 @@ class DiagramWidget(QWidget):
             return self.design.contour.trailing_edge.bezier_curve
         return None
     
+    def _pick_edge_anchor(self, x: float, y: float) -> Optional[str]:
+        """
+        Find the edge anchor nearest to the given coordinates.
+        
+        Returns anchor name ('le_hub', 'le_tip', 'te_hub', 'te_tip') or None.
+        """
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        bbox = self.ax.get_window_extent()
+        px_to_data_x = (xlim[1] - xlim[0]) / bbox.width
+        px_to_data_y = (ylim[1] - ylim[0]) / bbox.height
+        tol = self.PICK_TOLERANCE * max(px_to_data_x, px_to_data_y)
+        
+        contour = self.design.contour
+        
+        # Get edge anchor positions
+        anchors = [
+            ('le_hub', contour.hub_curve.evaluate(contour.leading_edge.hub_t)),
+            ('le_tip', contour.tip_curve.evaluate(contour.leading_edge.tip_t)),
+            ('te_hub', contour.hub_curve.evaluate(contour.trailing_edge.hub_t)),
+            ('te_tip', contour.tip_curve.evaluate(contour.trailing_edge.tip_t)),
+        ]
+        
+        min_dist = float('inf')
+        best_anchor = None
+        
+        for name, (z, r) in anchors:
+            dist = np.sqrt((x - z)**2 + (y - r)**2)
+            if dist < min_dist and dist < tol:
+                min_dist = dist
+                best_anchor = name
+        
+        return best_anchor
+    
+    def _update_edge_anchor(self, anchor_name: str, x: float, y: float):
+        """
+        Update edge anchor position by finding closest t on curve.
+        
+        anchor_name: 'le_hub', 'le_tip', 'te_hub', 'te_tip'
+        """
+        contour = self.design.contour
+        
+        # Determine which curve and edge
+        if 'hub' in anchor_name:
+            curve = contour.hub_curve
+        else:
+            curve = contour.tip_curve
+        
+        # Find closest t parameter
+        best_t = 0.0
+        min_dist = float('inf')
+        
+        for t in np.linspace(0, 1, 100):
+            pt = curve.evaluate(t)
+            dist = (pt[0] - x)**2 + (pt[1] - y)**2
+            if dist < min_dist:
+                min_dist = dist
+                best_t = t
+        
+        # Clamp t to valid range (e.g. 0.05 to 0.95)
+        best_t = max(0.05, min(0.95, best_t))
+        
+        # Update the appropriate edge anchor
+        if anchor_name == 'le_hub':
+            contour.leading_edge.hub_t = best_t
+        elif anchor_name == 'le_tip':
+            contour.leading_edge.tip_t = best_t
+        elif anchor_name == 'te_hub':
+            contour.trailing_edge.hub_t = best_t
+        elif anchor_name == 'te_tip':
+            contour.trailing_edge.tip_t = best_t
+        
+        # Recompute edge curves
+        contour.leading_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+        contour.trailing_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+    
     def _apply_bbox_constraint(self, z: float, r: float) -> Tuple[float, float]:
-        """Constrain point to bounding box of current geometry."""
-        samples = self.design.contour.get_all_sample_points(50)
-        all_pts = np.vstack([samples['hub'], samples['tip']])
+        """Constrain point to bounding box derived from hub/tip endpoints."""
+        contour = self.design.contour
         
-        z_min, z_max = all_pts[:, 0].min(), all_pts[:, 0].max()
-        r_min, r_max = all_pts[:, 1].min(), all_pts[:, 1].max()
+        # Get hub/tip curve endpoints for dynamic limits
+        hub_pts = contour.hub_curve.get_control_array()
+        tip_pts = contour.tip_curve.get_control_array()
         
-        # Apply margin
+        # Z limits from curve endpoints (P0 and P4)
+        z_min = min(hub_pts[0, 0], hub_pts[-1, 0], tip_pts[0, 0], tip_pts[-1, 0])
+        z_max = max(hub_pts[0, 0], hub_pts[-1, 0], tip_pts[0, 0], tip_pts[-1, 0])
+        
+        # R limits from curve endpoints
+        r_min = min(hub_pts[0, 1], hub_pts[-1, 1])  # Hub radii
+        r_max = max(tip_pts[0, 1], tip_pts[-1, 1])  # Tip radii
+        
+        # Apply margin (allow slight expansion)
         m = self.bbox_margin
-        z_center = (z_min + z_max) / 2
-        r_center = (r_min + r_max) / 2
-        z_half = (z_max - z_min) / 2 * m
-        r_half = (r_max - r_min) / 2 * m
+        z_pad = (z_max - z_min) * (1 - m) / 2
+        r_pad = (r_max - r_min) * (1 - m) / 2
         
-        # Clamp
-        z = max(z_center - z_half, min(z, z_center + z_half))
-        r = max(r_center - r_half, min(r, r_center + r_half))
+        # Clamp with margin
+        z = max(z_min + z_pad, min(z, z_max - z_pad))
+        r = max(r_min + r_pad, min(r, r_max - r_pad))
         
         return z, r
     
@@ -502,10 +725,11 @@ class DiagramWidget(QWidget):
         """
         Constrain point movement to preserve tangent angle.
         
-        For P1: move along line from P0
-        For P3: move along line from P4
+        For P1: move along line from P0 at locked angle
+        For P3: move along line from P4 at locked angle
         """
         points = curve.get_control_array()
+        pt = curve.control_points[idx]
         
         if idx == 1:
             anchor = points[0]  # P0
@@ -514,23 +738,29 @@ class DiagramWidget(QWidget):
         else:
             return z, r
         
-        # Direction from anchor to current target
+        # Use locked_angle if set, otherwise use current direction
+        locked_angle = getattr(pt, 'locked_angle', None)
+        if locked_angle is not None and locked_angle != 0.0:
+            # Convert angle (degrees) to direction vector
+            import math
+            angle_rad = math.radians(locked_angle)
+            dir_z = math.cos(angle_rad)
+            dir_r = math.sin(angle_rad)
+        else:
+            # Use current point direction
+            orig_dz = pt.z - anchor[0]
+            orig_dr = pt.r - anchor[1]
+            
+            orig_len = np.sqrt(orig_dz**2 + orig_dr**2)
+            if orig_len < 1e-9:
+                return z, r
+            
+            dir_z = orig_dz / orig_len
+            dir_r = orig_dr / orig_len
+        
+        # Direction from anchor to target
         dz = z - anchor[0]
         dr = r - anchor[1]
-        
-        # Get original direction
-        pt = curve.control_points[idx]
-        orig_dz = pt.z - anchor[0]
-        orig_dr = pt.r - anchor[1]
-        
-        # If no original direction, just use target
-        orig_len = np.sqrt(orig_dz**2 + orig_dr**2)
-        if orig_len < 1e-9:
-            return z, r
-        
-        # Normalize original direction
-        dir_z = orig_dz / orig_len
-        dir_r = orig_dr / orig_len
         
         # Project new position onto the line
         projection = dz * dir_z + dr * dir_r
@@ -651,13 +881,55 @@ class DiagramWidget(QWidget):
             )
             return
         
-        accepted, new_z, new_r = NumericInputDialog.get_coordinates(
+        # Calculate current angle for P1/P3 from tangent direction
+        import math
+        current_angle = getattr(pt, 'locked_angle', 0.0)
+        if point_idx in [1, 3] and current_angle == 0.0:
+            # Calculate from current direction
+            points = curve.get_control_array()
+            if point_idx == 1:
+                anchor = points[0]  # P0
+            else:
+                anchor = points[4]  # P4
+            dz = pt.z - anchor[0]
+            dr = pt.r - anchor[1]
+            if abs(dz) > 1e-9 or abs(dr) > 1e-9:
+                current_angle = math.degrees(math.atan2(dr, dz))
+        
+        # Use new popup API with angle lock support
+        accepted, new_z, new_r, angle_locked, angle_value = NumericInputDialog.get_coordinates(
             pt.z, pt.r,
             f"{curve_name.capitalize()} P{point_idx}",
-            self
+            self,
+            curve_name=curve_name,
+            point_index=point_idx,
+            angle_locked=pt.angle_locked,
+            angle_value=current_angle
         )
         
         if accepted:
+            # Apply angle lock and value if changed
+            if point_idx in [1, 3]:
+                pt.angle_locked = angle_locked
+                pt.locked_angle = angle_value
+                
+                # If angle lock is enabled, move point to the specified angle
+                if angle_locked:
+                    import math
+                    points = curve.get_control_array()
+                    if point_idx == 1:
+                        anchor = points[0]  # P0
+                    else:
+                        anchor = points[4]  # P4
+                    
+                    # Calculate current distance from anchor
+                    dist = math.sqrt((pt.z - anchor[0])**2 + (pt.r - anchor[1])**2)
+                    
+                    # Move point to new angle at same distance
+                    angle_rad = math.radians(angle_value)
+                    new_z = anchor[0] + dist * math.cos(angle_rad)
+                    new_r = anchor[1] + dist * math.sin(angle_rad)
+            
             curve.set_point(point_idx, new_z, new_r)
             self.update_plot()
             self.geometry_changed.emit()

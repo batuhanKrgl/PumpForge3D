@@ -220,8 +220,7 @@ class DesignTab(QWidget):
         
         main_layout.addWidget(self.splitter, 1)
         
-        # Overlay toolbar for diagram (positioned after resize event)
-        self._create_diagram_toolbar()
+        # Note: Overlay toolbar removed - using diagram's built-in toolbar
     
     def _create_left_panel(self) -> QWidget:
         """Create the left control panel with collapsible sections."""
@@ -241,7 +240,9 @@ class DesignTab(QWidget):
         dims_section = CollapsibleSection("Main Dimensions")
         dims_form = QFormLayout()
         dims_form.setSpacing(8)
+        dims_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         
+        # Radial dimensions first
         self.r_h_in_spin = StyledSpinBox()
         self.r_h_in_spin.setRange(0, 1000)
         self.r_h_in_spin.setDecimals(2)
@@ -266,100 +267,32 @@ class DesignTab(QWidget):
         self.r_t_out_spin.setSuffix(" mm")
         dims_form.addRow(create_subscript_label("r", "t,out"), self.r_t_out_spin)
         
-        # Axial length with separate hub/tip option (E1 fix - Option 1: show both, disable secondary when locked)
-        axial_section = QWidget()
-        axial_layout = QVBoxLayout(axial_section)
-        axial_layout.setContentsMargins(0, 0, 0, 0)
-        axial_layout.setSpacing(4)
-        
+        # Axial lengths at bottom (properly aligned in form)
         self.separate_L_check = QCheckBox("Separate hub/tip axial length")
-        axial_layout.addWidget(self.separate_L_check)
+        dims_form.addRow("", self.separate_L_check)
         
-        # Hub length row
-        l_hub_row = QHBoxLayout()
-        self.L_hub_label = create_subscript_label("L", "hub")
-        l_hub_row.addWidget(self.L_hub_label)
         self.L_hub_spin = StyledSpinBox()
         self.L_hub_spin.setRange(1, 10000)
         self.L_hub_spin.setDecimals(2)
         self.L_hub_spin.setSuffix(" mm")
-        l_hub_row.addWidget(self.L_hub_spin)
-        axial_layout.addLayout(l_hub_row)
+        dims_form.addRow(create_subscript_label("L", "hub"), self.L_hub_spin)
         
-        # Tip length row
-        l_tip_row = QHBoxLayout()
-        self.L_tip_label = create_subscript_label("L", "tip")
-        l_tip_row.addWidget(self.L_tip_label)
         self.L_tip_spin = StyledSpinBox()
         self.L_tip_spin.setRange(1, 10000)
         self.L_tip_spin.setDecimals(2)
         self.L_tip_spin.setSuffix(" mm")
         self.L_tip_spin.setEnabled(False)  # Disabled when locked
-        l_tip_row.addWidget(self.L_tip_spin)
-        axial_layout.addLayout(l_tip_row)
-        
-        dims_section.addWidget(axial_section)
+        dims_form.addRow(create_subscript_label("L", "tip"), self.L_tip_spin)
         
         dims_section.addLayout(dims_form)
         
-        apply_dims_btn = QPushButton("Apply Dimensions")
-        apply_dims_btn.setStyleSheet("background-color: #89b4fa; color: #1e1e2e;")
-        apply_dims_btn.clicked.connect(self._apply_dimensions)
-        dims_section.addWidget(apply_dims_btn)
+        # NOTE: Apply button removed - dimensions apply on edit finished
         
         layout.addWidget(dims_section)
         
-        # DISPLAY OPTIONS SECTION
-        display_section = CollapsibleSection("Display Options")
-        
-        self.grid_check = QCheckBox("Show Grid")
-        self.grid_check.setChecked(True)
-        display_section.addWidget(self.grid_check)
-        
-        self.cp_check = QCheckBox("Show Control Points")
-        self.cp_check.setChecked(True)
-        display_section.addWidget(self.cp_check)
-        
-        self.polygon_check = QCheckBox("Show Control Polygon")
-        self.polygon_check.setChecked(True)
-        display_section.addWidget(self.polygon_check)
-        
-        layout.addWidget(display_section)
-        
-        # CURVE CONSTRAINTS SECTION
-        constraints_section = CollapsibleSection("Curve Constraints")
-        
-        # Hub constraints
-        hub_label = QLabel("<b>Hub Curve</b>")
-        constraints_section.addWidget(hub_label)
-        
-        self.hub_inlet_lock = QCheckBox("Lock inlet angle")
-        constraints_section.addWidget(self.hub_inlet_lock)
-        
-        hub_inlet_row = QHBoxLayout()
-        hub_inlet_row.addWidget(QLabel("  Angle:"))
-        self.hub_inlet_angle = StyledSpinBox()
-        self.hub_inlet_angle.setRange(-90, 90)
-        self.hub_inlet_angle.setDecimals(1)
-        self.hub_inlet_angle.setSuffix("°")
-        self.hub_inlet_angle.setEnabled(False)
-        hub_inlet_row.addWidget(self.hub_inlet_angle)
-        constraints_section.addLayout(hub_inlet_row)
-        
-        self.hub_outlet_lock = QCheckBox("Lock outlet angle")
-        constraints_section.addWidget(self.hub_outlet_lock)
-        
-        # Tip constraints
-        tip_label = QLabel("<b>Tip Curve</b>")
-        constraints_section.addWidget(tip_label)
-        
-        self.tip_inlet_lock = QCheckBox("Lock inlet angle")
-        constraints_section.addWidget(self.tip_inlet_lock)
-        
-        self.tip_outlet_lock = QCheckBox("Lock outlet angle")
-        constraints_section.addWidget(self.tip_outlet_lock)
-        
-        layout.addWidget(constraints_section)
+        # NOTE: Display Options and Curve Constraints removed
+        # Display toggles are in the diagram toolbar
+        # Angle lock controls are in the coordinate-edit popup
         
         # EDGE CURVES SECTION
         edges_section = CollapsibleSection("Edge Curves")
@@ -487,60 +420,26 @@ class DesignTab(QWidget):
         scroll.setWidget(container)
         return scroll
     
-    def _create_diagram_toolbar(self):
-        """Create overlay toolbar buttons on the diagram."""
-        # Create a small toolbar widget that floats over the diagram
-        self.diagram_toolbar = QWidget(self.diagram)
-        toolbar_layout = QHBoxLayout(self.diagram_toolbar)
-        toolbar_layout.setContentsMargins(4, 4, 4, 4)
-        toolbar_layout.setSpacing(4)
-        
-        # Toolbar buttons with icons/symbols
-        buttons = [
-            ("⤢", "Fit View", self._fit_view),
-            ("☐", "Toggle Grid", self._toggle_grid),
-            ("◉", "Toggle CPs", self._toggle_cps),
-            ("💾", "Save Image", self._save_image),
-            ("📥", "Import Polyline", self._import_polyline),
-        ]
-        
-        for symbol, tooltip, callback in buttons:
-            btn = QToolButton()
-            btn.setText(symbol)
-            btn.setToolTip(tooltip)
-            btn.setFixedSize(28, 28)
-            btn.setStyleSheet("""
-                QToolButton {
-                    background: rgba(49, 50, 68, 0.8);
-                    border: 1px solid #45475a;
-                    border-radius: 4px;
-                    color: #cdd6f4;
-                }
-                QToolButton:hover {
-                    background: rgba(69, 71, 90, 0.9);
-                }
-            """)
-            btn.clicked.connect(callback)
-            toolbar_layout.addWidget(btn)
-        
-        self.diagram_toolbar.adjustSize()
-        self.diagram_toolbar.move(8, 8)
-    
     def _connect_signals(self):
         """Connect UI signals."""
-        # Display options
-        self.grid_check.toggled.connect(lambda c: self._set_display_option('show_grid', c))
-        self.cp_check.toggled.connect(lambda c: self._set_display_option('show_control_points', c))
-        self.polygon_check.toggled.connect(lambda c: self._set_display_option('show_control_polygon', c))
-        
-        # Angle locks
-        self.hub_inlet_lock.toggled.connect(lambda c: self.hub_inlet_angle.setEnabled(c))
-        self.hub_outlet_lock.toggled.connect(self._on_constraint_changed)
-        self.tip_inlet_lock.toggled.connect(self._on_constraint_changed)
-        self.tip_outlet_lock.toggled.connect(self._on_constraint_changed)
+        # Dimension spinboxes - immediate update on value change
+        self.r_h_in_spin.valueChanged.connect(self._apply_dimensions)
+        self.r_t_in_spin.valueChanged.connect(self._apply_dimensions)
+        self.r_h_out_spin.valueChanged.connect(self._apply_dimensions)
+        self.r_t_out_spin.valueChanged.connect(self._apply_dimensions)
+        self.L_hub_spin.valueChanged.connect(self._apply_dimensions)
+        self.L_tip_spin.valueChanged.connect(self._apply_dimensions)
         
         # Separate L toggle
         self.separate_L_check.toggled.connect(self._toggle_separate_lengths)
+        
+        # LE/TE controls - wire to update geometry
+        self.le_mode_combo.currentIndexChanged.connect(self._on_edge_mode_changed)
+        self.le_hub_pos.valueChanged.connect(self._on_edge_position_changed)
+        self.le_tip_pos.valueChanged.connect(self._on_edge_position_changed)
+        self.te_mode_combo.currentIndexChanged.connect(self._on_edge_mode_changed)
+        self.te_hub_pos.valueChanged.connect(self._on_edge_position_changed)
+        self.te_tip_pos.valueChanged.connect(self._on_edge_position_changed)
         
         # Diagram signals
         self.diagram.geometry_changed.connect(self._on_diagram_geometry_changed)
@@ -629,13 +528,47 @@ class DesignTab(QWidget):
         setattr(self.diagram, option, value)
         self.diagram.update_plot()
     
-    def _on_constraint_changed(self):
-        """Handle constraint checkbox changes."""
-        self.design.set_constraint('hub_p1_angle_locked', self.hub_inlet_lock.isChecked())
-        self.design.set_constraint('hub_p3_angle_locked', self.hub_outlet_lock.isChecked())
-        self.design.set_constraint('tip_p1_angle_locked', self.tip_inlet_lock.isChecked())
-        self.design.set_constraint('tip_p3_angle_locked', self.tip_outlet_lock.isChecked())
+    def _on_edge_mode_changed(self):
+        """Handle LE/TE mode combo change."""
+        # Update edge curve modes from combo boxes
+        from pumpforge3d_core.geometry.meridional import CurveMode
+        
+        le_mode = CurveMode.STRAIGHT if self.le_mode_combo.currentIndex() == 0 else CurveMode.BEZIER
+        te_mode = CurveMode.STRAIGHT if self.te_mode_combo.currentIndex() == 0 else CurveMode.BEZIER
+        
+        contour = self.design.contour
+        contour.leading_edge.mode = le_mode
+        contour.trailing_edge.mode = te_mode
+        
+        # Recompute edge curves with new mode
+        contour.leading_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+        contour.trailing_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+        
+        self._refresh_all()
+    
+    def _on_edge_position_changed(self):
+        """Handle LE/TE position spinbox change."""
+        # Update edge anchor positions
+        contour = self.design.contour
+        
+        contour.leading_edge.hub_t = self.le_hub_pos.value()
+        contour.leading_edge.tip_t = self.le_tip_pos.value()
+        contour.trailing_edge.hub_t = self.te_hub_pos.value()
+        contour.trailing_edge.tip_t = self.te_tip_pos.value()
+        
+        # Recompute edge curves from new positions
+        contour.leading_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+        contour.trailing_edge.update_from_meridional(contour.hub_curve, contour.tip_curve)
+        
+        self._refresh_all()
+    
+    def _refresh_all(self):
+        """Central refresh after geometry changes."""
         self.diagram.update_plot()
+        self._update_info_tree()
+        self._update_validation()
+        self._update_analysis_plots()
+        self.geometry_changed.emit()
     
     def _on_cp_mode_free(self, checked: bool):
         """Handle free movement mode toggle."""
@@ -660,10 +593,33 @@ class DesignTab(QWidget):
     
     def _on_diagram_geometry_changed(self):
         """Handle geometry change from diagram."""
+        # Sync LE/TE position spinboxes from design (for edge anchor dragging)
+        self._sync_edge_positions_from_design()
+        
         self._update_info_tree()
         self._update_validation()
-        self._update_analysis_plots()  # Update analysis plots on geometry change
+        self._update_analysis_plots()
         self.geometry_changed.emit()
+    
+    def _sync_edge_positions_from_design(self):
+        """Sync LE/TE position spinboxes from current design values."""
+        contour = self.design.contour
+        
+        # Block signals to avoid feedback loop
+        self.le_hub_pos.blockSignals(True)
+        self.le_tip_pos.blockSignals(True)
+        self.te_hub_pos.blockSignals(True)
+        self.te_tip_pos.blockSignals(True)
+        
+        self.le_hub_pos.setValue(contour.leading_edge.hub_t)
+        self.le_tip_pos.setValue(contour.leading_edge.tip_t)
+        self.te_hub_pos.setValue(contour.trailing_edge.hub_t)
+        self.te_tip_pos.setValue(contour.trailing_edge.tip_t)
+        
+        self.le_hub_pos.blockSignals(False)
+        self.le_tip_pos.blockSignals(False)
+        self.te_hub_pos.blockSignals(False)
+        self.te_tip_pos.blockSignals(False)
     
     def _on_point_selected(self, curve: str, index: int):
         """Handle point selection in diagram - update status bar (F1 fix)."""

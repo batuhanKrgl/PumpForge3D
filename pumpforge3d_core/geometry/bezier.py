@@ -480,7 +480,7 @@ class BezierCurve2:
         # P1 at midpoint
         p1 = (z0 + 0.5 * (z2 - z0), r0 + 0.5 * (r2 - r0))
         
-        return cls.from_points([p0, p1, p2], name=name, endpoints_locked=True)
+        return cls.from_points([p0, p1, p2], name=name, endpoints_locked=False)
     
     def get_point(self, index: int) -> ControlPoint:
         """Get control point by index (0-2)."""
