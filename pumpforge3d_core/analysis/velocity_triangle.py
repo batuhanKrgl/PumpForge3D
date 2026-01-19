@@ -65,23 +65,24 @@ def compute_triangle(
     radius: float,
     rpm: float,
     cm: float,
-    alpha1_deg: float = 90.0
+    alpha1_deg: float = 90.0,
+    use_beta: bool = True
 ) -> TriangleData:
     """
     Compute velocity triangle for a single station.
     
     Uses CFturbo velocity relations:
     - u = ω × r
-    - wu = cm / tan(β)
-    - cu = u - wu (identity: wu + cu = u)
+    - Identity: wu + cu = u (always holds)
     
     Args:
         beta_deg: Relative flow angle (degrees)
         radius: Radius at this station (m)
         rpm: Rotational speed (rev/min)
         cm: Meridional velocity (m/s)
-        alpha1_deg: Inlet absolute flow angle (degrees), default 90° (no preswirl)
-                    α=90° means cu=0, pure meridional inflow
+        alpha1_deg: Inlet absolute flow angle (degrees), default 90°
+        use_beta: If True (outlet mode), wu is calculated from tan(β)=cm/wu, cu from identity.
+                  If False (inlet mode), cu is calculated from alpha, wu from identity.
         
     Returns:
         TriangleData with all velocity components
@@ -107,20 +108,22 @@ def compute_triangle(
     
     # Handle alpha input for pre-swirl
     # α=90° means pure meridional (cu=0), α<90° means positive preswirl
+    # Use epsilon-based guard for robust handling of α=90°
     alpha_rad = math.radians(alpha1_deg)
+    cos_alpha = math.cos(alpha_rad)
+    sin_alpha = math.sin(alpha_rad)
     
-    # Handle cos(90°) = 0 case
-    if abs(alpha1_deg - 90.0) < 0.1:
-        # Pure meridional, no preswirl
+    # Robust alpha=90° handling: avoid division by zero when cos(α)≈0
+    EPS = 1e-10
+    if abs(cos_alpha) < EPS:
+        # Pure meridional, α=90°: cu=0
         cu_from_alpha = 0.0
+    elif abs(sin_alpha) < EPS:
+        # α≈0° or 180°: all circumferential (rare case)
+        cu_from_alpha = cm * 1e6  # Very large, will be clamped
     else:
-        # cu = cm / tan(α) when α is defined from meridional
-        # Or use: cu = cm * cot(α) = cm / tan(α)
-        tan_alpha = math.tan(alpha_rad)
-        if abs(tan_alpha) < 0.001:
-            cu_from_alpha = cm * 1000  # Large value, clamp later
-        else:
-            cu_from_alpha = cm / tan_alpha
+        # Normal case: cu = cm * cos(α) / sin(α) = cm / tan(α)
+        cu_from_alpha = cm * cos_alpha / sin_alpha
     
     # Relative circumferential velocity
     # tan(β) = cm / wu => wu = cm / tan(β)
@@ -131,14 +134,23 @@ def compute_triangle(
     else:
         wu = cm / tan_beta
     
-    # Apply preswirl from alpha if specified (α ≠ 90°)
-    if abs(alpha1_deg - 90.0) >= 0.1:
-        cu = cu_from_alpha
-        # Recalculate wu from identity: wu = u - cu
-        wu = u - cu
-    else:
-        # No preswirl: cu = u - wu
+    # Two computation modes:
+    # 1. use_beta=True (outlet): wu from tan(β), cu from identity
+    # 2. use_beta=False (inlet): cu from alpha, wu from identity
+    
+    if use_beta:
+        # Outlet mode: wu from beta, cu from identity
+        # wu was already calculated above from tan(β)
         cu = u - wu
+    else:
+        # Inlet mode: cu from alpha, wu from identity
+        if abs(cos_alpha) < EPS:
+            # Alpha=90°: pure meridional c, cu=0
+            cu = 0.0
+        else:
+            cu = cu_from_alpha
+        # wu from identity
+        wu = u - cu
     
     # Velocity magnitudes
     c = math.sqrt(cu**2 + cm**2)

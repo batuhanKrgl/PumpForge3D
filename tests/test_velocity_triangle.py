@@ -91,16 +91,16 @@ class TestVelocityTriangle:
         assert tip.u > hub.u
     
     def test_preswirl(self):
-        """Test pre-swirl (alpha1 != 90) affects cu correctly."""
-        # Without preswirl (alpha1 = 90°)
-        tri_no_preswirl = compute_triangle(beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=90.0)
+        """Test pre-swirl (alpha1 != 90) affects cu correctly in inlet mode."""
+        # Without preswirl (alpha1 = 90°) - inlet mode
+        tri_no_preswirl = compute_triangle(beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=90.0, use_beta=False)
         
-        # With preswirl (alpha1 = 45° means cu = cm / tan(45) = cm)
+        # With preswirl (alpha1 = 45° means cu = cm / tan(45) = cm) - inlet mode
         tri_with_preswirl = compute_triangle(
-            beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=45.0
+            beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=45.0, use_beta=False
         )
         
-        # cu should be different (with preswirl, cu = cm / tan(45) = 5.0)
+        # cu should be 5.0 (with preswirl, cu = cm / tan(45) = 5.0)
         assert tri_with_preswirl.cu == pytest.approx(5.0, rel=0.01)
         
         # Identity should still hold
@@ -131,3 +131,29 @@ class TestVelocityTriangle:
         # u = (u, 0)
         assert u_vec[0] == tri.u
         assert u_vec[1] == 0.0
+    
+    def test_alpha_90_singularity(self):
+        """Test alpha=89, 90, 91 produce finite values and cu(90)=0 in inlet mode."""
+        # Inlet mode: use_beta=False (alpha controls cu)
+        # alpha=89 should work
+        tri_89 = compute_triangle(beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=89.0, use_beta=False)
+        assert math.isfinite(tri_89.cu)
+        assert math.isfinite(tri_89.c)
+        
+        # alpha=90: pure meridional c, cu=0, wu=u (from identity)
+        tri_90 = compute_triangle(beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=90.0, use_beta=False)
+        assert math.isfinite(tri_90.cu)
+        assert math.isfinite(tri_90.c)
+        assert abs(tri_90.cu) < 0.001  # cu = 0 for pure meridional
+        assert abs(tri_90.c - tri_90.cm) < 0.001  # c = cm when cu=0
+        assert tri_90.wu == pytest.approx(tri_90.u, rel=0.001)  # wu = u when cu=0
+        
+        # alpha=91 should work
+        tri_91 = compute_triangle(beta_deg=30, radius=0.05, rpm=3000, cm=5.0, alpha1_deg=91.0, use_beta=False)
+        assert math.isfinite(tri_91.cu)
+        assert math.isfinite(tri_91.c)
+        
+        # Identity wu + cu = u should hold for ALL cases
+        assert tri_89.wu + tri_89.cu == pytest.approx(tri_89.u, rel=0.01)
+        assert tri_90.wu + tri_90.cu == pytest.approx(tri_90.u, rel=0.01)
+        assert tri_91.wu + tri_91.cu == pytest.approx(tri_91.u, rel=0.01)

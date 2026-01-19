@@ -1,21 +1,18 @@
 """
-Velocity Triangle Widget - Improved.
+Velocity Triangle Widget - CFturbo 2×2 Layout with input panel.
 
-Shows inlet and outlet velocity triangles for hub and tip endpoints.
-- Alpha input (default 90° = no preswirl)
-- Hub/tip offset for readability
-- Angle arcs for α and β
-- Minimum aspect ratio
-- Thinner lines
+Layout:
+- Left: Vertical input panel (rpm, cm, radii, alpha, beta)
+- Right: 2×2 velocity triangles (Inlet Hub/Tip, Outlet Hub/Tip)
 """
 
-from typing import Optional, Tuple
+from typing import Optional
 import math
 import numpy as np
 
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QCheckBox, QToolButton, QLabel, QSizePolicy
+    QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QGroupBox, QFormLayout,
+    QDoubleSpinBox, QLabel, QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -30,18 +27,30 @@ from pumpforge3d_core.analysis.velocity_triangle import (
 
 class VelocityTriangleWidget(QWidget):
     """
-    Widget showing velocity triangles for inlet and outlet.
+    2×2 velocity triangle widget with vertical input panel.
     
-    Signals:
-        inputsChanged: Emitted when mock inputs change
+    Layout:
+    +--------+-------------------+-------------------+
+    | Inputs |   Inlet (Hub)     |   Inlet (Tip)     |
+    |        +-------------------+-------------------+
+    |        |   Outlet (Hub)    |   Outlet (Tip)    |
+    +--------+-------------------+-------------------+
     """
     
     inputsChanged = Signal()
     
+    # Colors
+    COLOR_U = '#f9e2af'      # Blade speed - yellow
+    COLOR_C = '#89b4fa'      # Absolute velocity - blue
+    COLOR_W = '#a6e3a1'      # Relative velocity - green
+    COLOR_DASHED = '#6c7086' # Dashed constructions - gray
+    COLOR_ARC = '#cba6f7'    # Angle arcs - purple
+    COLOR_PRIME = '#f38ba8'  # Prime/slip vectors - pink
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Mock inputs
+        # Inputs
         self._rpm = 3000.0
         self._cm1 = 5.0
         self._cm2 = 4.0
@@ -49,374 +58,444 @@ class VelocityTriangleWidget(QWidget):
         self._r1_tip = 0.05
         self._r2_hub = 0.04
         self._r2_tip = 0.06
-        self._alpha1 = 90.0  # Inlet flow angle (90° = no preswirl)
+        self._alpha1 = 90.0
         
-        # Beta values from table
-        self._beta_in_hub = 20.0
-        self._beta_in_tip = 25.0
-        self._beta_out_hub = 50.0
-        self._beta_out_tip = 55.0
+        # Beta values (flow angles)
+        self._beta_in_hub = 25.0
+        self._beta_in_tip = 30.0
+        self._beta_out_hub = 55.0
+        self._beta_out_tip = 60.0
         
-        # Display options
-        self._show_components = True
-        self._show_angles = True
+        # Blade angles (for derivated triangles)
+        self._beta_blade_in_hub = 20.0
+        self._beta_blade_in_tip = 25.0
+        self._beta_blade_out_hub = 50.0
+        self._beta_blade_out_tip = 55.0
         
         self._setup_ui()
         self._connect_signals()
-        self._update_triangles()
+        self._update_all()
     
     def _setup_ui(self):
-        """Create the UI layout."""
-        main_layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
-        main_layout.setSpacing(4)
+        main_layout.setSpacing(6)
         
-        # Top: Mock inputs panel
-        inputs_group = QGroupBox("Triangle Inputs")
-        inputs_layout = QHBoxLayout(inputs_group)
-        inputs_layout.setSpacing(8)
+        # Left: Vertical input panel
+        input_panel = QFrame()
+        input_panel.setFrameStyle(QFrame.Shape.StyledPanel)
+        input_panel.setMaximumWidth(200)
+        input_layout = QVBoxLayout(input_panel)
+        input_layout.setContentsMargins(8, 8, 8, 8)
+        input_layout.setSpacing(8)
         
-        # RPM
-        rpm_layout = QFormLayout()
+        # Machine parameters
+        machine_group = QGroupBox("Machine")
+        machine_form = QFormLayout(machine_group)
+        machine_form.setSpacing(4)
+        
         self.rpm_spin = QDoubleSpinBox()
         self.rpm_spin.setRange(100, 50000)
         self.rpm_spin.setValue(self._rpm)
         self.rpm_spin.setSuffix(" rpm")
-        rpm_layout.addRow("n:", self.rpm_spin)
-        inputs_layout.addLayout(rpm_layout)
+        machine_form.addRow("n:", self.rpm_spin)
         
-        # Alpha1 (inlet flow angle)
-        alpha_layout = QFormLayout()
         self.alpha1_spin = QDoubleSpinBox()
         self.alpha1_spin.setRange(0, 180)
-        self.alpha1_spin.setValue(90)
+        self.alpha1_spin.setValue(self._alpha1)
         self.alpha1_spin.setSuffix("°")
-        self.alpha1_spin.setToolTip("Inlet flow angle (90° = no preswirl)")
-        alpha_layout.addRow("α₁:", self.alpha1_spin)
-        inputs_layout.addLayout(alpha_layout)
+        machine_form.addRow("α₁:", self.alpha1_spin)
+        
+        input_layout.addWidget(machine_group)
         
         # Meridional velocities
-        cm_layout = QFormLayout()
+        vel_group = QGroupBox("Velocities")
+        vel_form = QFormLayout(vel_group)
+        vel_form.setSpacing(4)
+        
         self.cm1_spin = QDoubleSpinBox()
         self.cm1_spin.setRange(0.1, 100)
         self.cm1_spin.setValue(self._cm1)
         self.cm1_spin.setSuffix(" m/s")
-        cm_layout.addRow("cm₁:", self.cm1_spin)
+        vel_form.addRow("cm₁:", self.cm1_spin)
         
         self.cm2_spin = QDoubleSpinBox()
         self.cm2_spin.setRange(0.1, 100)
         self.cm2_spin.setValue(self._cm2)
         self.cm2_spin.setSuffix(" m/s")
-        cm_layout.addRow("cm₂:", self.cm2_spin)
-        inputs_layout.addLayout(cm_layout)
+        vel_form.addRow("cm₂:", self.cm2_spin)
         
-        # Inlet radii
-        r1_layout = QFormLayout()
-        self.r1_hub_spin = QDoubleSpinBox()
-        self.r1_hub_spin.setRange(0.001, 10)
-        self.r1_hub_spin.setDecimals(3)
-        self.r1_hub_spin.setValue(self._r1_hub)
-        self.r1_hub_spin.setSuffix(" m")
-        r1_layout.addRow("r₁h:", self.r1_hub_spin)
+        input_layout.addWidget(vel_group)
         
-        self.r1_tip_spin = QDoubleSpinBox()
-        self.r1_tip_spin.setRange(0.001, 10)
-        self.r1_tip_spin.setDecimals(3)
-        self.r1_tip_spin.setValue(self._r1_tip)
-        self.r1_tip_spin.setSuffix(" m")
-        r1_layout.addRow("r₁t:", self.r1_tip_spin)
-        inputs_layout.addLayout(r1_layout)
+        # Radii
+        radii_group = QGroupBox("Radii (m)")
+        radii_form = QFormLayout(radii_group)
+        radii_form.setSpacing(4)
         
-        # Outlet radii
-        r2_layout = QFormLayout()
-        self.r2_hub_spin = QDoubleSpinBox()
-        self.r2_hub_spin.setRange(0.001, 10)
-        self.r2_hub_spin.setDecimals(3)
-        self.r2_hub_spin.setValue(self._r2_hub)
-        self.r2_hub_spin.setSuffix(" m")
-        r2_layout.addRow("r₂h:", self.r2_hub_spin)
+        for name, attr, default in [
+            ("r₁h:", "_r1_hub", 0.03), ("r₁t:", "_r1_tip", 0.05),
+            ("r₂h:", "_r2_hub", 0.04), ("r₂t:", "_r2_tip", 0.06)
+        ]:
+            spin = QDoubleSpinBox()
+            spin.setRange(0.001, 10)
+            spin.setDecimals(3)
+            spin.setValue(default)
+            setattr(self, f"{attr}_spin", spin)
+            radii_form.addRow(name, spin)
         
-        self.r2_tip_spin = QDoubleSpinBox()
-        self.r2_tip_spin.setRange(0.001, 10)
-        self.r2_tip_spin.setDecimals(3)
-        self.r2_tip_spin.setValue(self._r2_tip)
-        self.r2_tip_spin.setSuffix(" m")
-        r2_layout.addRow("r₂t:", self.r2_tip_spin)
-        inputs_layout.addLayout(r2_layout)
+        input_layout.addWidget(radii_group)
         
-        main_layout.addWidget(inputs_group)
+        # Flow angles (beta)
+        beta_group = QGroupBox("Flow Angles β")
+        beta_form = QFormLayout(beta_group)
+        beta_form.setSpacing(4)
         
-        # Options bar
-        options_layout = QHBoxLayout()
+        for name, attr in [
+            ("β₁ hub:", "_beta_in_hub"), ("β₁ tip:", "_beta_in_tip"),
+            ("β₂ hub:", "_beta_out_hub"), ("β₂ tip:", "_beta_out_tip")
+        ]:
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 90)
+            spin.setValue(getattr(self, attr))
+            spin.setSuffix("°")
+            setattr(self, f"{attr}_spin", spin)
+            beta_form.addRow(name, spin)
         
-        self.show_comp_check = QCheckBox("Components")
-        self.show_comp_check.setChecked(True)
-        options_layout.addWidget(self.show_comp_check)
+        input_layout.addWidget(beta_group)
         
-        self.show_angles_check = QCheckBox("Angles")
-        self.show_angles_check.setChecked(True)
-        options_layout.addWidget(self.show_angles_check)
+        # Blade angles (beta_B)
+        blade_group = QGroupBox("Blade Angles βB")
+        blade_form = QFormLayout(blade_group)
+        blade_form.setSpacing(4)
         
-        options_layout.addStretch()
+        for name, attr in [
+            ("βB₁ hub:", "_beta_blade_in_hub"), ("βB₁ tip:", "_beta_blade_in_tip"),
+            ("βB₂ hub:", "_beta_blade_out_hub"), ("βB₂ tip:", "_beta_blade_out_tip")
+        ]:
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 90)
+            spin.setValue(getattr(self, attr))
+            spin.setSuffix("°")
+            setattr(self, f"{attr}_spin", spin)
+            blade_form.addRow(name, spin)
         
-        fit_btn = QToolButton()
-        fit_btn.setText("⤢ Fit")
-        fit_btn.clicked.connect(self._fit_view)
-        options_layout.addWidget(fit_btn)
+        input_layout.addWidget(blade_group)
         
-        main_layout.addLayout(options_layout)
+        input_layout.addStretch()
+        main_layout.addWidget(input_panel)
         
-        # Triangle panels
-        triangles_layout = QHBoxLayout()
-        triangles_layout.setSpacing(8)
+        # Right: 2×2 grid of triangle panels
+        grid_widget = QWidget()
+        grid_layout = QGridLayout(grid_widget)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setSpacing(4)
         
-        # Inlet
-        inlet_group = QGroupBox("Inlet Triangle (1)")
-        inlet_layout = QVBoxLayout(inlet_group)
-        inlet_layout.setContentsMargins(2, 2, 2, 2)
-        self.inlet_figure = Figure(figsize=(4, 3), dpi=100, facecolor='#181825')
-        self.inlet_canvas = FigureCanvas(self.inlet_figure)
-        self.inlet_canvas.setStyleSheet("background-color: #181825;")
-        inlet_layout.addWidget(self.inlet_canvas)
-        triangles_layout.addWidget(inlet_group)
+        # Create 4 panels
+        self.inlet_hub_fig = Figure(figsize=(5, 4), dpi=100, facecolor='#181825')
+        self.inlet_hub_canvas = FigureCanvas(self.inlet_hub_fig)
+        inlet_hub_group = self._create_panel("Inlet (Hub)", self.inlet_hub_canvas)
+        grid_layout.addWidget(inlet_hub_group, 0, 0)
         
-        # Outlet
-        outlet_group = QGroupBox("Outlet Triangle (2)")
-        outlet_layout = QVBoxLayout(outlet_group)
-        outlet_layout.setContentsMargins(2, 2, 2, 2)
-        self.outlet_figure = Figure(figsize=(4, 3), dpi=100, facecolor='#181825')
-        self.outlet_canvas = FigureCanvas(self.outlet_figure)
-        self.outlet_canvas.setStyleSheet("background-color: #181825;")
-        outlet_layout.addWidget(self.outlet_canvas)
-        triangles_layout.addWidget(outlet_group)
+        self.inlet_tip_fig = Figure(figsize=(5, 4), dpi=100, facecolor='#181825')
+        self.inlet_tip_canvas = FigureCanvas(self.inlet_tip_fig)
+        inlet_tip_group = self._create_panel("Inlet (Tip)", self.inlet_tip_canvas)
+        grid_layout.addWidget(inlet_tip_group, 0, 1)
         
-        main_layout.addLayout(triangles_layout, 1)
+        self.outlet_hub_fig = Figure(figsize=(5, 4), dpi=100, facecolor='#181825')
+        self.outlet_hub_canvas = FigureCanvas(self.outlet_hub_fig)
+        outlet_hub_group = self._create_panel("Outlet (Hub)", self.outlet_hub_canvas)
+        grid_layout.addWidget(outlet_hub_group, 1, 0)
         
-        # Info label
-        self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: #a6adc8; font-size: 9px;")
-        main_layout.addWidget(self.info_label)
+        self.outlet_tip_fig = Figure(figsize=(5, 4), dpi=100, facecolor='#181825')
+        self.outlet_tip_canvas = FigureCanvas(self.outlet_tip_fig)
+        outlet_tip_group = self._create_panel("Outlet (Tip)", self.outlet_tip_canvas)
+        grid_layout.addWidget(outlet_tip_group, 1, 1)
+        
+        grid_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        main_layout.addWidget(grid_widget, 1)
+    
+    def _create_panel(self, title: str, canvas) -> QGroupBox:
+        group = QGroupBox(title)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(2, 8, 2, 2)
+        canvas.setStyleSheet("background-color: #181825;")
+        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(canvas)
+        return group
     
     def _connect_signals(self):
-        """Connect signals."""
-        self.rpm_spin.valueChanged.connect(self._on_input_changed)
-        self.alpha1_spin.valueChanged.connect(self._on_input_changed)
-        self.cm1_spin.valueChanged.connect(self._on_input_changed)
-        self.cm2_spin.valueChanged.connect(self._on_input_changed)
-        self.r1_hub_spin.valueChanged.connect(self._on_input_changed)
-        self.r1_tip_spin.valueChanged.connect(self._on_input_changed)
-        self.r2_hub_spin.valueChanged.connect(self._on_input_changed)
-        self.r2_tip_spin.valueChanged.connect(self._on_input_changed)
+        # Connect all spinboxes
+        for spin in [self.rpm_spin, self.alpha1_spin, self.cm1_spin, self.cm2_spin]:
+            spin.valueChanged.connect(self._on_input_changed)
         
-        self.show_comp_check.toggled.connect(lambda: self._update_triangles())
-        self.show_angles_check.toggled.connect(lambda: self._update_triangles())
+        for attr in ["_r1_hub", "_r1_tip", "_r2_hub", "_r2_tip"]:
+            getattr(self, f"{attr}_spin").valueChanged.connect(self._on_input_changed)
+        
+        for attr in ["_beta_in_hub", "_beta_in_tip", "_beta_out_hub", "_beta_out_tip",
+                     "_beta_blade_in_hub", "_beta_blade_in_tip", "_beta_blade_out_hub", "_beta_blade_out_tip"]:
+            getattr(self, f"{attr}_spin").valueChanged.connect(self._on_input_changed)
     
     def _on_input_changed(self):
-        """Handle input changes."""
+        # Read all values
         self._rpm = self.rpm_spin.value()
         self._alpha1 = self.alpha1_spin.value()
         self._cm1 = self.cm1_spin.value()
         self._cm2 = self.cm2_spin.value()
-        self._r1_hub = self.r1_hub_spin.value()
-        self._r1_tip = self.r1_tip_spin.value()
-        self._r2_hub = self.r2_hub_spin.value()
-        self._r2_tip = self.r2_tip_spin.value()
         
-        self._update_triangles()
+        for attr in ["_r1_hub", "_r1_tip", "_r2_hub", "_r2_tip"]:
+            setattr(self, attr, getattr(self, f"{attr}_spin").value())
+        
+        for attr in ["_beta_in_hub", "_beta_in_tip", "_beta_out_hub", "_beta_out_tip",
+                     "_beta_blade_in_hub", "_beta_blade_in_tip", "_beta_blade_out_hub", "_beta_blade_out_tip"]:
+            setattr(self, attr, getattr(self, f"{attr}_spin").value())
+        
+        self._update_all()
         self.inputsChanged.emit()
     
-    def set_beta_values(self, beta_in_hub: float, beta_in_tip: float,
-                       beta_out_hub: float, beta_out_tip: float):
-        """Set beta values from external source."""
-        self._beta_in_hub = beta_in_hub
-        self._beta_in_tip = beta_in_tip
-        self._beta_out_hub = beta_out_hub
-        self._beta_out_tip = beta_out_tip
-        self._update_triangles()
+    def _update_all(self):
+        # Compute all 4 triangles
+        inlet_hub = compute_triangle(self._beta_in_hub, self._r1_hub, self._rpm, self._cm1, self._alpha1, use_beta=False)
+        inlet_tip = compute_triangle(self._beta_in_tip, self._r1_tip, self._rpm, self._cm1, self._alpha1, use_beta=False)
+        outlet_hub = compute_triangle(self._beta_out_hub, self._r2_hub, self._rpm, self._cm2, 90.0, use_beta=True)
+        outlet_tip = compute_triangle(self._beta_out_tip, self._r2_tip, self._rpm, self._cm2, 90.0, use_beta=True)
+        
+        # Draw each panel with derivated triangles
+        self._draw_inlet(self.inlet_hub_fig, inlet_hub, self._beta_blade_in_hub)
+        self._draw_inlet(self.inlet_tip_fig, inlet_tip, self._beta_blade_in_tip)
+        self._draw_outlet(self.outlet_hub_fig, outlet_hub, self._beta_blade_out_hub)
+        self._draw_outlet(self.outlet_tip_fig, outlet_tip, self._beta_blade_out_tip)
+        
+        for canvas in [self.inlet_hub_canvas, self.inlet_tip_canvas, 
+                       self.outlet_hub_canvas, self.outlet_tip_canvas]:
+            canvas.draw()
     
-    def _update_triangles(self):
-        """Recompute and redraw triangles."""
-        # Compute triangles
-        inlet_hub = compute_triangle(self._beta_in_hub, self._r1_hub, self._rpm, self._cm1, self._alpha1)
-        inlet_tip = compute_triangle(self._beta_in_tip, self._r1_tip, self._rpm, self._cm1, self._alpha1)
-        outlet_hub = compute_triangle(self._beta_out_hub, self._r2_hub, self._rpm, self._cm2, 90.0)
-        outlet_tip = compute_triangle(self._beta_out_tip, self._r2_tip, self._rpm, self._cm2, 90.0)
-        
-        # Draw
-        self._draw_triangle_panel(self.inlet_figure, inlet_hub, inlet_tip, "Inlet")
-        self._draw_triangle_panel(self.outlet_figure, outlet_hub, outlet_tip, "Outlet")
-        
-        self.inlet_canvas.draw()
-        self.outlet_canvas.draw()
-        
-        # Update info
-        self.info_label.setText(
-            f"β: Hub in={self._beta_in_hub:.1f}° out={self._beta_out_hub:.1f}° | "
-            f"Tip in={self._beta_in_tip:.1f}° out={self._beta_out_tip:.1f}°"
-        )
-    
-    def _draw_triangle_panel(self, figure: Figure, hub: TriangleData, tip: TriangleData, title: str):
-        """Draw a triangle panel."""
-        figure.clear()
-        ax = figure.add_subplot(111)
+    def _draw_inlet(self, fig: Figure, tri: TriangleData, beta_blade: float):
+        """Draw inlet triangle with derivated elements (w', c', i')."""
+        fig.clear()
+        ax = fig.add_subplot(111)
         ax.set_facecolor('#1e1e2e')
-        
         for spine in ax.spines.values():
             spine.set_color('#45475a')
         ax.tick_params(colors='#a6adc8', labelsize=7)
         
-        hub_color = '#89b4fa'
-        tip_color = '#a6e3a1'
+        # Base triangle layout
+        wu = tri.wu
+        origin = np.array([0, 0])
+        u_end = np.array([tri.u, 0])
+        apex = np.array([wu, tri.cm])
         
-        # Offset tip triangle slightly for readability
-        hub_offset = np.array([0, 0])
-        tip_offset = np.array([0, hub.cm * 0.15])  # Offset tip upward
+        # Draw baseline u₁
+        self._draw_baseline(ax, origin, u_end, 'u₁', self.COLOR_U)
         
-        # Draw hub (solid)
-        self._draw_single_triangle(ax, hub, hub_offset, hub_color, '-', 'Hub')
+        # Draw main vectors (solid)
+        self._draw_arrow(ax, origin, apex, self.COLOR_W, '-', 1.8)
+        self._label_on_vector(ax, origin, apex, 'w₁', self.COLOR_W)
         
-        # Draw tip (dashed, offset)
-        self._draw_single_triangle(ax, tip, tip_offset, tip_color, '--', 'Tip')
+        self._draw_arrow(ax, u_end, apex, self.COLOR_C, '-', 1.8)
+        self._label_on_vector(ax, u_end, apex, 'c₁', self.COLOR_C)
         
-        # Legend
-        ax.plot([], [], '-', color=hub_color, linewidth=1.5, label='Hub')
-        ax.plot([], [], '--', color=tip_color, linewidth=1.5, label='Tip')
-        ax.legend(loc='upper right', fontsize=7, facecolor='#313244', 
-                 edgecolor='#45475a', labelcolor='#cdd6f4')
+        # Derivated triangle: w₁' at blade angle β₁B
+        beta_b_rad = math.radians(beta_blade)
+        wu_prime = tri.cm / math.tan(beta_b_rad) if abs(math.tan(beta_b_rad)) > 0.01 else tri.cm * 100
+        apex_prime = np.array([wu_prime, tri.cm])
         
-        # Set aspect with minimum ratio
-        ax.set_aspect('equal')
+        # Draw w₁' (dashed)
+        self._draw_arrow(ax, origin, apex_prime, self.COLOR_PRIME, '--', 1.2)
+        self._label_on_vector(ax, origin, apex_prime, "w₁'", self.COLOR_PRIME)
         
-        # Ensure minimum plot area
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
-        x_range = xlim[1] - xlim[0]
-        y_range = ylim[1] - ylim[0]
+        # Draw c₁' (dashed) from u_end to apex_prime
+        self._draw_arrow(ax, u_end, apex_prime, self.COLOR_PRIME, '--', 1.2)
+        self._label_on_vector(ax, u_end, apex_prime, "c₁'", self.COLOR_PRIME)
         
-        # Ensure y_range is at least 0.4 * x_range (avoid flat triangles)
-        min_y_ratio = 0.4
-        if y_range < x_range * min_y_ratio:
-            center_y = (ylim[0] + ylim[1]) / 2
-            new_y_range = x_range * min_y_ratio
-            ax.set_ylim(center_y - new_y_range/2, center_y + new_y_range/2)
+        # Component spans
+        if abs(wu) > 0.1:
+            ax.annotate('', xy=(wu, -2), xytext=(0, -2),
+                       arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+            ax.text(wu/2, -3.5, 'w₁u', fontsize=9, color=self.COLOR_W, ha='center')
         
-        ax.grid(True, alpha=0.15, color='#45475a', linewidth=0.5)
-        ax.set_xlabel('Circumferential [m/s]', fontsize=7, color='#a6adc8')
-        ax.set_ylabel('Meridional [m/s]', fontsize=7, color='#a6adc8')
+        cu_val = tri.u - wu
+        if abs(cu_val) > 0.1:
+            ax.annotate('', xy=(tri.u, -2), xytext=(wu, -2),
+                       arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+            ax.text((wu + tri.u)/2, -3.5, 'c₁u', fontsize=9, color=self.COLOR_C, ha='center')
         
-        figure.tight_layout(pad=0.3)
-    
-    def _draw_single_triangle(self, ax, tri: TriangleData, offset: np.ndarray,
-                             color: str, linestyle: str, label: str):
-        """Draw a single velocity triangle."""
-        origin = offset.copy()
+        # cm span (vertical)
+        ax.annotate('', xy=(tri.u + 2, tri.cm), xytext=(tri.u + 2, 0),
+                   arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+        ax.text(tri.u + 3, tri.cm/2, 'c₁m', fontsize=9, color=self.COLOR_C, ha='left', va='center')
         
-        # u: blade speed (horizontal)
-        u_end = origin + np.array([tri.u, 0])
-        
-        # c: absolute velocity from origin
-        c_end = origin + np.array([tri.cu, tri.cm])
-        
-        # w: relative velocity (from u_end to c_end)
-        # w = c - u vectorially
-        
-        # Draw main vectors (thin lines)
-        lw = 1.0 if linestyle == '-' else 0.8
-        
-        # u vector
-        self._draw_vector(ax, origin, u_end, color, linestyle, lw, 'u', label)
-        
-        # c vector
-        self._draw_vector(ax, origin, c_end, color, linestyle, lw, 'c', label)
-        
-        # w vector (from u_end)
-        self._draw_vector(ax, u_end, c_end, color, linestyle, lw, 'w', label)
-        
-        # Components
-        show_comp = self.show_comp_check.isChecked()
-        if show_comp:
-            # cu component (only if non-zero)
-            if abs(tri.cu) > 0.1:
-                cu_end = origin + np.array([tri.cu, 0])
-                ax.plot([origin[0], cu_end[0]], [origin[1], cu_end[1]], 
-                       ':', color=color, linewidth=0.5, alpha=0.6)
-                ax.text(cu_end[0] - 0.5, cu_end[1] - 0.3, 'cu', fontsize=6, 
-                       color=color, alpha=0.7)
-            
-            # cm component
-            cm_start = origin + np.array([tri.cu, 0])
-            ax.plot([cm_start[0], c_end[0]], [cm_start[1], c_end[1]], 
-                   ':', color=color, linewidth=0.5, alpha=0.6)
-            
-            # wu component (only if visible)
-            if abs(tri.wu) > 0.1:
-                wu_end = u_end + np.array([tri.cu - tri.u, 0])
-                ax.plot([u_end[0], wu_end[0]], [u_end[1], wu_end[1]], 
-                       ':', color=color, linewidth=0.5, alpha=0.6)
+        # Vertical reference line
+        ax.axvline(apex[0], color=self.COLOR_DASHED, ls='--', lw=0.5, alpha=0.5)
         
         # Angle arcs
-        show_angles = self.show_angles_check.isChecked()
-        if show_angles:
-            arc_radius = min(tri.c, tri.w, tri.u) * 0.15
-            
-            # Alpha arc (at origin, between u-direction and c)
-            if abs(tri.cu) > 0.1 and tri.alpha < 89:
-                alpha_arc = Arc(origin, arc_radius*2, arc_radius*2,
-                              angle=0, theta1=0, theta2=tri.alpha,
-                              color=color, linewidth=0.5, linestyle=linestyle)
-                ax.add_patch(alpha_arc)
-                ax.text(origin[0] + arc_radius*1.5, origin[1] + arc_radius*0.5, 
-                       f'α={tri.alpha:.0f}°', fontsize=5, color=color, alpha=0.8)
-            
-            # Beta arc (at u_end, angle of w from horizontal)
-            beta_angle = math.degrees(math.atan2(tri.cm, tri.cu - tri.u))
-            if beta_angle < 0:
-                beta_angle += 180
-            beta_arc = Arc(u_end, arc_radius*2, arc_radius*2,
-                          angle=0, theta1=0, theta2=beta_angle,
-                          color=color, linewidth=0.5, linestyle=linestyle)
-            ax.add_patch(beta_arc)
-            ax.text(u_end[0] - arc_radius*2, u_end[1] + arc_radius*0.5, 
-                   f'β={tri.beta:.0f}°', fontsize=5, color=color, alpha=0.8)
+        arc_r = min(tri.u, tri.cm) * 0.15
+        if arc_r < 1:
+            arc_r = 1
+        
+        # β₁: flow angle (solid) at origin
+        beta_flow = math.degrees(math.atan2(tri.cm, wu)) if abs(wu) > 0.01 else 90
+        arc = Arc(origin, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow,
+                 color=self.COLOR_ARC, lw=1.0)
+        ax.add_patch(arc)
+        mid = math.radians(beta_flow/2)
+        ax.text(arc_r*1.3*math.cos(mid), arc_r*1.3*math.sin(mid), 'β₁', 
+               fontsize=10, color=self.COLOR_ARC, fontweight='bold')
+        
+        # β₁B: blade angle (dashed arc)
+        beta_b_deg = beta_blade
+        arc_b = Arc(origin, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_b_deg,
+                   color=self.COLOR_PRIME, lw=1.0, ls='--')
+        ax.add_patch(arc_b)
+        mid_b = math.radians(beta_b_deg/2)
+        ax.text(arc_r*2.8*math.cos(mid_b), arc_r*2.8*math.sin(mid_b), 'β₁B', 
+               fontsize=9, color=self.COLOR_PRIME)
+        
+        # i₁': incidence angle (between β₁B and β₁)
+        if abs(beta_flow - beta_b_deg) > 1:
+            theta1, theta2 = min(beta_b_deg, beta_flow), max(beta_b_deg, beta_flow)
+            arc_i = Arc(origin, arc_r*1.8, arc_r*1.8, angle=0, theta1=theta1, theta2=theta2,
+                       color='#fab387', lw=1.5)
+            ax.add_patch(arc_i)
+            mid_i = math.radians((theta1 + theta2)/2)
+            ax.text(arc_r*2*math.cos(mid_i), arc_r*2*math.sin(mid_i), "i₁'", 
+                   fontsize=9, color='#fab387', fontweight='bold')
+        
+        self._finalize_ax(ax, origin, u_end, apex, apex_prime)
     
-    def _draw_vector(self, ax, start: np.ndarray, end: np.ndarray, 
-                    color: str, linestyle: str, linewidth: float, 
-                    name: str, triangle_label: str):
-        """Draw a vector with arrowhead and label."""
-        # Line
-        ax.plot([start[0], end[0]], [start[1], end[1]], 
-               linestyle=linestyle, color=color, linewidth=linewidth)
+    def _draw_outlet(self, fig: Figure, tri: TriangleData, beta_blade: float):
+        """Draw outlet triangle with derivated elements (w', c', δ')."""
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#1e1e2e')
+        for spine in ax.spines.values():
+            spine.set_color('#45475a')
+        ax.tick_params(colors='#a6adc8', labelsize=7)
         
-        # Arrowhead
-        direction = end - start
-        length = np.linalg.norm(direction)
-        if length > 0.1:
-            direction = direction / length
-            arrow_size = length * 0.08
-            perp = np.array([-direction[1], direction[0]])
-            arrow_pos = end - direction * arrow_size
-            ax.plot([end[0], arrow_pos[0] + perp[0]*arrow_size*0.4],
-                   [end[1], arrow_pos[1] + perp[1]*arrow_size*0.4],
-                   linestyle='-', color=color, linewidth=linewidth)
-            ax.plot([end[0], arrow_pos[0] - perp[0]*arrow_size*0.4],
-                   [end[1], arrow_pos[1] - perp[1]*arrow_size*0.4],
-                   linestyle='-', color=color, linewidth=linewidth)
+        # Base triangle layout
+        wu = tri.wu
+        origin = np.array([0, 0])
+        u_end = np.array([tri.u, 0])
+        apex = np.array([wu, tri.cm])
         
-        # Label at midpoint
+        # Draw baseline u₂
+        self._draw_baseline(ax, origin, u_end, 'u₂', self.COLOR_U)
+        
+        # Draw main vectors (solid)
+        self._draw_arrow(ax, origin, apex, self.COLOR_W, '-', 1.8)
+        self._label_on_vector(ax, origin, apex, 'w₂', self.COLOR_W)
+        
+        self._draw_arrow(ax, u_end, apex, self.COLOR_C, '-', 1.8)
+        self._label_on_vector(ax, u_end, apex, 'c₂', self.COLOR_C)
+        
+        # Derivated triangle: w₂' at blade angle β₂B
+        beta_b_rad = math.radians(beta_blade)
+        wu_prime = tri.cm / math.tan(beta_b_rad) if abs(math.tan(beta_b_rad)) > 0.01 else tri.cm * 100
+        apex_prime = np.array([wu_prime, tri.cm])
+        
+        # Draw w₂' (dashed)
+        self._draw_arrow(ax, origin, apex_prime, self.COLOR_PRIME, '--', 1.2)
+        self._label_on_vector(ax, origin, apex_prime, "w₂'", self.COLOR_PRIME)
+        
+        # Draw c₂' (dashed)
+        self._draw_arrow(ax, u_end, apex_prime, self.COLOR_PRIME, '--', 1.2)
+        self._label_on_vector(ax, u_end, apex_prime, "c₂'", self.COLOR_PRIME)
+        
+        # Component spans
+        if abs(wu) > 0.1:
+            ax.annotate('', xy=(wu, -2), xytext=(0, -2),
+                       arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+            ax.text(wu/2, -3.5, 'w₂u', fontsize=9, color=self.COLOR_W, ha='center')
+        
+        cu_val = tri.u - wu
+        if abs(cu_val) > 0.1:
+            ax.annotate('', xy=(tri.u, -2), xytext=(wu, -2),
+                       arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+            ax.text((wu + tri.u)/2, -3.5, 'c₂u', fontsize=9, color=self.COLOR_C, ha='center')
+        
+        # cm span
+        ax.annotate('', xy=(tri.u + 2, tri.cm), xytext=(tri.u + 2, 0),
+                   arrowprops=dict(arrowstyle='<->', color=self.COLOR_DASHED, lw=0.8))
+        ax.text(tri.u + 3, tri.cm/2, 'c₂m', fontsize=9, color=self.COLOR_C, ha='left', va='center')
+        
+        # Vertical reference line
+        ax.axvline(apex[0], color=self.COLOR_DASHED, ls='--', lw=0.5, alpha=0.5)
+        
+        # Angle arcs
+        arc_r = min(tri.u, tri.cm) * 0.15
+        if arc_r < 1:
+            arc_r = 1
+        
+        # β₂: flow angle at origin
+        beta_flow = math.degrees(math.atan2(tri.cm, wu)) if abs(wu) > 0.01 else 90
+        arc = Arc(origin, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow,
+                 color=self.COLOR_ARC, lw=1.0)
+        ax.add_patch(arc)
+        mid = math.radians(beta_flow/2)
+        ax.text(arc_r*1.3*math.cos(mid), arc_r*1.3*math.sin(mid), 'β₂', 
+               fontsize=10, color=self.COLOR_ARC, fontweight='bold')
+        
+        # β₂B: blade angle
+        beta_b_deg = beta_blade
+        arc_b = Arc(origin, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_b_deg,
+                   color=self.COLOR_PRIME, lw=1.0, ls='--')
+        ax.add_patch(arc_b)
+        mid_b = math.radians(beta_b_deg/2)
+        ax.text(arc_r*2.8*math.cos(mid_b), arc_r*2.8*math.sin(mid_b), 'β₂B', 
+               fontsize=9, color=self.COLOR_PRIME)
+        
+        # δ': deviation/slip angle
+        if abs(beta_flow - beta_b_deg) > 1:
+            theta1, theta2 = min(beta_b_deg, beta_flow), max(beta_b_deg, beta_flow)
+            arc_d = Arc(origin, arc_r*1.8, arc_r*1.8, angle=0, theta1=theta1, theta2=theta2,
+                       color='#fab387', lw=1.5)
+            ax.add_patch(arc_d)
+            mid_d = math.radians((theta1 + theta2)/2)
+            ax.text(arc_r*2*math.cos(mid_d), arc_r*2*math.sin(mid_d), "δ'", 
+                   fontsize=9, color='#fab387', fontweight='bold')
+        
+        self._finalize_ax(ax, origin, u_end, apex, apex_prime)
+    
+    def _draw_baseline(self, ax, start, end, label, color):
+        ax.annotate('', xy=end, xytext=start,
+                   arrowprops=dict(arrowstyle='->', color=color, lw=2.0, shrinkA=0, shrinkB=0))
         mid = (start + end) / 2
-        # Offset perpendicular to vector
-        if length > 0.1:
-            perp = np.array([-direction[1], direction[0]])
-            label_pos = mid + perp * length * 0.1
-            ax.text(label_pos[0], label_pos[1], name, fontsize=7, 
-                   color=color, ha='center', va='center', fontweight='bold')
+        ax.text(mid[0], mid[1], label, fontsize=11, color=color, 
+               ha='center', va='center', fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.1', facecolor='#1e1e2e', edgecolor='none', alpha=0.8))
     
-    def _fit_view(self):
-        """Auto-fit views."""
-        self._update_triangles()
+    def _draw_arrow(self, ax, start, end, color, ls, lw):
+        ax.annotate('', xy=end, xytext=start,
+                   arrowprops=dict(arrowstyle='->', color=color, lw=lw, linestyle=ls, shrinkA=0, shrinkB=0))
+    
+    def _label_on_vector(self, ax, start, end, label, color):
+        mid = (start + end) / 2
+        ax.text(mid[0], mid[1], label, fontsize=10, color=color, 
+               ha='center', va='center', fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.1', facecolor='#1e1e2e', edgecolor='none', alpha=0.8))
+    
+    def _finalize_ax(self, ax, origin, u_end, apex, apex_prime=None):
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.15, color='#45475a', lw=0.3)
+        ax.axhline(0, color='#45475a', lw=0.5)
+        
+        # Bounds from all points
+        all_x = [origin[0], u_end[0], apex[0]]
+        all_y = [origin[1], u_end[1], apex[1]]
+        if apex_prime is not None:
+            all_x.append(apex_prime[0])
+            all_y.append(apex_prime[1])
+        
+        x_min, x_max = min(all_x), max(all_x)
+        y_min, y_max = min(all_y), max(all_y)
+        
+        x_margin = (x_max - x_min) * 0.2 + 5
+        y_margin = (y_max - y_min) * 0.2 + 2
+        
+        ax.set_xlim(x_min - x_margin, x_max + x_margin)
+        ax.set_ylim(y_min - y_margin - 5, y_max + y_margin)
 
 
-# Standalone demo
+# Demo
 if __name__ == "__main__":
     import sys
     from PySide6.QtWidgets import QApplication, QMainWindow
@@ -427,12 +506,12 @@ if __name__ == "__main__":
         QGroupBox { border: 1px solid #45475a; border-radius: 4px; margin-top: 8px; padding-top: 12px; }
         QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
         QDoubleSpinBox { background-color: #313244; border: 1px solid #45475a; border-radius: 4px; padding: 2px; }
-        QToolButton { background-color: #313244; border: 1px solid #45475a; border-radius: 4px; padding: 4px; }
+        QFrame { background-color: #181825; border-radius: 4px; }
     """)
     
     window = QMainWindow()
-    window.setWindowTitle("Velocity Triangles - Improved")
-    window.resize(900, 450)
+    window.setWindowTitle("Velocity Triangles - Derivated (w', c', δ', i')")
+    window.resize(1200, 700)
     
     widget = VelocityTriangleWidget()
     window.setCentralWidget(widget)

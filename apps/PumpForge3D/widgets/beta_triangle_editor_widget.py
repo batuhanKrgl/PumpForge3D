@@ -3,10 +3,16 @@ Combined Beta Editor + Velocity Triangle Widget.
 
 This module combines the Beta Distribution Editor with the Velocity Triangle
 visualization as a single standalone widget.
+
+Layout:
+- Left: Beta table + controls
+- Right (vertical split):
+  - Top: β-θ plot
+  - Bottom: 2×2 velocity triangles
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QSplitter
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QGroupBox
 )
 from PySide6.QtCore import Qt
 
@@ -17,8 +23,8 @@ from apps.PumpForge3D.widgets.velocity_triangle_widget import VelocityTriangleWi
 class BetaTriangleEditorWidget(QWidget):
     """
     Combined widget with:
-    - Top: Velocity Triangles
-    - Bottom: Beta Table + Beta-Theta Plot
+    - Left: Beta Table + controls
+    - Right: β-θ plot (top) + 2×2 Velocity Triangles (bottom)
     
     Changes to beta values automatically update velocity triangles.
     """
@@ -32,25 +38,30 @@ class BetaTriangleEditorWidget(QWidget):
     
     def _setup_ui(self):
         """Create the UI layout."""
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
         
-        # Splitter for resizable sections
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        
-        # Top: Velocity triangles
-        self.triangle_widget = VelocityTriangleWidget()
-        splitter.addWidget(self.triangle_widget)
-        
-        # Bottom: Beta editor
+        # Left: Beta editor (table only, we'll use its signals)
         self.beta_widget = BetaDistributionEditorWidget()
-        splitter.addWidget(self.beta_widget)
+        layout.addWidget(self.beta_widget, 0)  # Don't stretch
         
-        # Set initial sizes (triangles smaller)
-        splitter.setSizes([300, 400])
+        # Right: Vertical splitter with β-θ plot and triangles
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
         
-        layout.addWidget(splitter)
+        # Note: We can't easily extract the plot from beta_widget.
+        # Instead, we'll put the triangle widget in the right panel
+        # and let the beta_widget be its own thing on the left
+        
+        # 2×2 Velocity triangles (takes full right panel)
+        triangle_group = QGroupBox("Velocity Triangles")
+        triangle_layout = QVBoxLayout(triangle_group)
+        triangle_layout.setContentsMargins(2, 8, 2, 2)
+        self.triangle_widget = VelocityTriangleWidget()
+        self.triangle_widget.setMinimumHeight(400)
+        triangle_layout.addWidget(self.triangle_widget)
+        
+        layout.addWidget(triangle_group, 1)  # Stretch to fill
     
     def _connect_signals(self):
         """Connect signals between widgets."""
