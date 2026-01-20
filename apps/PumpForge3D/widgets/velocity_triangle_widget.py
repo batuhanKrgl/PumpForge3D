@@ -9,9 +9,11 @@ import numpy as np
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QFrame, QSizePolicy, QLabel
+    QDoubleSpinBox, QFrame, QSizePolicy, QLabel, QTableWidget, QTableWidgetItem,
+    QHeaderView, QTabWidget
 )
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QFont
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -184,9 +186,37 @@ class VelocityTriangleWidget(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
+        # Data viewer table
+        self.data_viewer = QTableWidget()
+        self.data_viewer.setColumnCount(5)
+        self.data_viewer.setHorizontalHeaderLabels(['Parameter', 'Inlet Hub', 'Inlet Tip', 'Outlet Hub', 'Outlet Tip'])
+        self.data_viewer.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.data_viewer.setMaximumHeight(300)
+        self.data_viewer.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e2e;
+                color: #cdd6f4;
+                gridline-color: #45475a;
+                border: 1px solid #45475a;
+                font-size: 10px;
+            }
+            QTableWidget::item {
+                padding: 4px;
+            }
+            QHeaderView::section {
+                background-color: #313244;
+                color: #cdd6f4;
+                padding: 6px;
+                border: 1px solid #45475a;
+                font-weight: bold;
+                font-size: 10px;
+            }
+        """)
+
         right_layout.addWidget(self.toolbar)
         right_layout.addWidget(self.main_canvas, 1)
         right_layout.addWidget(self.status_label)
+        right_layout.addWidget(self.data_viewer)
 
         main_layout.addWidget(right_widget, 1)
     
@@ -298,57 +328,84 @@ class VelocityTriangleWidget(QWidget):
                 }
             """)
         
-        # Calculate per-column xlim (Hub column, Tip column)
-        # Column 0 (Hub): inlet_hub, outlet_hub
-        hub_tris = [inlet_hub, outlet_hub]
-        hub_xmax = max(t.u for t in hub_tris)
-        hub_xmin = min(0, min(t.wu for t in hub_tris))
-        
-        # Column 1 (Tip): inlet_tip, outlet_tip
-        tip_tris = [inlet_tip, outlet_tip]
-        tip_xmax = max(t.u for t in tip_tris)
-        tip_xmin = min(0, min(t.wu for t in tip_tris))
-        
-        # Calculate per-row ylim (Inlet row, Outlet row)
-        # Row 0 (Inlet): inlet_hub, inlet_tip
-        inlet_tris = [inlet_hub, inlet_tip]
-        inlet_ymax = max(t.cm * self._k_blockage * 1.15 for t in inlet_tris)
-        
-        # Row 1 (Outlet): outlet_hub, outlet_tip
-        outlet_tris = [outlet_hub, outlet_tip]
-        outlet_ymax = max(t.cm * self._k_blockage * 1.15 for t in outlet_tris)
-        
-        margin = 1.5
-        
-        # Create 2×2 subplots with sharex per column, sharey per row
+        # Create 2×2 subplots with independent axes (no syncing)
         self.main_fig.clear()
-        axes = self.main_fig.subplots(2, 2, sharex='col', sharey='row')
-        
-        titles = [("Inlet Hub", inlet_hub, self._beta_blade_in_hub),
-                  ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),
-                  ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),
-                  ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)]
-        
-        for idx, (title, tri, beta_blade) in enumerate(titles):
+        axes = self.main_fig.subplots(2, 2)
+
+        triangles_data = [
+            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),
+            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),
+            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),
+            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)
+        ]
+
+        # Draw each triangle with independent axis limits
+        for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
-        
-        # Apply per-column xlim
-        axes[0, 0].set_xlim(hub_xmin - margin, hub_xmax + margin)
-        axes[1, 0].set_xlim(hub_xmin - margin, hub_xmax + margin)
-        axes[0, 1].set_xlim(tip_xmin - margin, tip_xmax + margin)
-        axes[1, 1].set_xlim(tip_xmin - margin, tip_xmax + margin)
-        
-        # Apply per-row ylim
-        axes[0, 0].set_ylim(-margin - 2, inlet_ymax + margin)
-        axes[0, 1].set_ylim(-margin - 2, inlet_ymax + margin)
-        axes[1, 0].set_ylim(-margin - 2, outlet_ymax + margin)
-        axes[1, 1].set_ylim(-margin - 2, outlet_ymax + margin)
+
+            # Calculate independent axis limits for this triangle
+            margin = 1.5
+            xmax = tri.u + margin
+            xmin = min(0, tri.wu) - margin
+            ymax = tri.cm * self._k_blockage * 1.15 + margin
+
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(-margin - 2, ymax)
+
+        # Populate data viewer table
+        self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
         
         self.main_fig.tight_layout()
         self.main_canvas.draw()
-    
+
+    def _update_data_viewer(self, inlet_hub, inlet_tip, outlet_hub, outlet_tip):
+        """Populate data viewer table with comprehensive triangle data."""
+        # Parameters to display
+        params = [
+            ("Radius (m)", lambda t: f"{t.radius:.4f}"),
+            ("RPM", lambda t: f"{t.rpm:.1f}"),
+            ("", lambda t: ""),  # Separator
+            ("u (m/s)", lambda t: f"{t.u:.2f}"),
+            ("cm (m/s)", lambda t: f"{t.cm:.2f}"),
+            ("cu (m/s)", lambda t: f"{t.cu:.2f}"),
+            ("wu (m/s)", lambda t: f"{t.wu:.2f}"),
+            ("", lambda t: ""),  # Separator
+            ("c (m/s)", lambda t: f"{t.c:.2f}"),
+            ("w (m/s)", lambda t: f"{t.w:.2f}"),
+            ("", lambda t: ""),  # Separator
+            ("α (deg)", lambda t: f"{t.alpha:.2f}"),
+            ("β (deg)", lambda t: f"{t.beta:.2f}"),
+            ("", lambda t: ""),  # Separator
+            ("c/u ratio", lambda t: f"{t.c/t.u:.3f}" if t.u > 0.01 else "N/A"),
+            ("w/u ratio", lambda t: f"{t.w/t.u:.3f}" if t.u > 0.01 else "N/A"),
+        ]
+
+        triangles = [inlet_hub, inlet_tip, outlet_hub, outlet_tip]
+
+        self.data_viewer.setRowCount(len(params))
+
+        for row_idx, (param_name, value_func) in enumerate(params):
+            # Parameter name
+            name_item = QTableWidgetItem(param_name)
+            if param_name == "":  # Separator row
+                name_item.setBackground(Qt.GlobalColor.darkGray)
+            else:
+                font = QFont()
+                font.setBold(True)
+                name_item.setFont(font)
+            self.data_viewer.setItem(row_idx, 0, name_item)
+
+            # Values for each triangle
+            for col_idx, tri in enumerate(triangles):
+                value_item = QTableWidgetItem(value_func(tri))
+                if param_name == "":  # Separator row
+                    value_item.setBackground(Qt.GlobalColor.darkGray)
+                else:
+                    value_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.data_viewer.setItem(row_idx, col_idx + 1, value_item)
+
     def _draw_tri(self, ax, tri, beta_blade, k, title):
         """Draw triangle on given axes with improved readability and stability."""
         ax.set_facecolor('#1e1e2e')
