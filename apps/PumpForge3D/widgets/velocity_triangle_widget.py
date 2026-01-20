@@ -218,6 +218,9 @@ class VelocityTriangleWidget(QWidget):
         right_layout.addWidget(self.status_label)
         right_layout.addWidget(self.data_viewer)
 
+        # Hide data viewer by default (can be shown via set_data_viewer_visible)
+        self.data_viewer.setVisible(False)
+
         main_layout.addWidget(right_widget, 1)
     
     def _spin(self, min_v, max_v, val, suffix="", decimals=1):
@@ -535,6 +538,10 @@ class VelocityTriangleWidget(QWidget):
         ax.legend(handles=legend_elements, loc='lower right', fontsize=8,
                  facecolor='#313244', edgecolor='#45475a', labelcolor='#cdd6f4',
                  framealpha=0.9)
+
+    def set_data_viewer_visible(self, visible: bool):
+        """Show or hide the data viewer table."""
+        self.data_viewer.setVisible(visible)
 
 
 if __name__ == "__main__":

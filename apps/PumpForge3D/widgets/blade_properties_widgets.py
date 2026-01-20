@@ -42,17 +42,14 @@ class BladeThicknessMatrixWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Title
-        title = QLabel("Blade Thickness (mm)")
-        title.setStyleSheet("font-weight: bold; color: #cdd6f4;")
-        layout.addWidget(title)
-
         # Table
         self.table = QTableWidget(2, 2)
         self.table.setHorizontalHeaderLabels(['Inlet', 'Outlet'])
         self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
-        self.table.setMaximumHeight(100)
-        self.table.setMaximumWidth(200)
+        self.table.setMinimumHeight(85)
+        self.table.setMaximumHeight(95)
+        self.table.setMinimumWidth(180)
+        self.table.setMaximumWidth(220)
 
         # Style
         self.table.setStyleSheet("""
@@ -64,22 +61,25 @@ class BladeThicknessMatrixWidget(QWidget):
                 font-size: 10px;
             }
             QTableWidget::item {
-                padding: 4px;
+                padding: 2px;
             }
             QHeaderView::section {
                 background-color: #313244;
                 color: #cdd6f4;
-                padding: 4px;
+                padding: 3px;
                 border: 1px solid #45475a;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 9px;
             }
         """)
 
         # Fixed column widths
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 80)
-        self.table.setColumnWidth(1, 80)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 75)
+        self.table.setColumnWidth(1, 75)
+        self.table.setRowHeight(0, 28)
+        self.table.setRowHeight(1, 28)
 
         # Populate with spinboxes
         self._hub_inlet_spin = self._create_spinbox(self._thickness.hub_inlet)
@@ -150,6 +150,7 @@ class BladeThicknessMatrixWidget(QWidget):
 class BladeInputsWidget(QWidget):
     """
     Compact widget for blade count, incidence, and slip mode inputs.
+    Uses grid layout for proper alignment.
     """
 
     bladeCountChanged = Signal(int)
@@ -167,54 +168,80 @@ class BladeInputsWidget(QWidget):
         self._connect_signals()
 
     def _setup_ui(self):
-        layout = QFormLayout(self)
+        from PySide6.QtWidgets import QGridLayout
+
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        layout.setColumnStretch(0, 0)  # Label column: no stretch
+        layout.setColumnStretch(1, 0)  # Input column: no stretch
+
+        row = 0
 
         # Blade count
+        blade_count_label = QLabel("Blade count z:")
+        blade_count_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        blade_count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.blade_count_spin = QSpinBox()
         self.blade_count_spin.setRange(1, 20)
         self.blade_count_spin.setValue(self._blade_count)
-        self.blade_count_spin.setMaximumWidth(80)
+        self.blade_count_spin.setFixedWidth(70)
         self.blade_count_spin.setStyleSheet("""
             QSpinBox {
                 background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
                 padding: 3px;
+                font-size: 10px;
             }
         """)
-        layout.addRow("Blade count z:", self.blade_count_spin)
+
+        layout.addWidget(blade_count_label, row, 0)
+        layout.addWidget(self.blade_count_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
+        row += 1
 
         # Incidence
+        incidence_label = QLabel("Incidence i:")
+        incidence_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        incidence_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.incidence_spin = QDoubleSpinBox()
         self.incidence_spin.setRange(-20.0, 20.0)
         self.incidence_spin.setDecimals(1)
         self.incidence_spin.setValue(self._incidence)
         self.incidence_spin.setSuffix("°")
-        self.incidence_spin.setMaximumWidth(80)
+        self.incidence_spin.setFixedWidth(70)
         self.incidence_spin.setStyleSheet("""
             QDoubleSpinBox {
                 background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
                 padding: 3px;
+                font-size: 10px;
             }
         """)
-        layout.addRow("Incidence i:", self.incidence_spin)
+
+        layout.addWidget(incidence_label, row, 0)
+        layout.addWidget(self.incidence_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
+        row += 1
 
         # Slip mode
+        slip_mode_label = QLabel("Slip mode:")
+        slip_mode_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        slip_mode_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.slip_mode_combo = QComboBox()
         self.slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
         self.slip_mode_combo.setCurrentText(self._slip_mode)
-        self.slip_mode_combo.setMaximumWidth(120)
+        self.slip_mode_combo.setFixedWidth(100)
         self.slip_mode_combo.setStyleSheet("""
             QComboBox {
                 background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
                 padding: 3px;
+                font-size: 10px;
             }
             QComboBox::drop-down {
                 border: none;
@@ -225,24 +252,35 @@ class BladeInputsWidget(QWidget):
                 selection-background-color: #45475a;
             }
         """)
-        layout.addRow("Slip mode:", self.slip_mode_combo)
+
+        layout.addWidget(slip_mode_label, row, 0)
+        layout.addWidget(self.slip_mode_combo, row, 1, Qt.AlignmentFlag.AlignLeft)
+        row += 1
 
         # Mock slip (only shown when slip_mode = "Mock")
+        self.mock_slip_label = QLabel("Mock slip δ:")
+        self.mock_slip_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        self.mock_slip_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.mock_slip_spin = QDoubleSpinBox()
         self.mock_slip_spin.setRange(-30.0, 30.0)
         self.mock_slip_spin.setDecimals(1)
         self.mock_slip_spin.setValue(self._mock_slip)
         self.mock_slip_spin.setSuffix("°")
-        self.mock_slip_spin.setMaximumWidth(80)
+        self.mock_slip_spin.setFixedWidth(70)
         self.mock_slip_spin.setStyleSheet("""
             QDoubleSpinBox {
                 background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
                 padding: 3px;
+                font-size: 10px;
             }
         """)
-        layout.addRow("Mock slip δ:", self.mock_slip_spin)
+
+        layout.addWidget(self.mock_slip_label, row, 0)
+        layout.addWidget(self.mock_slip_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
+
         self._update_mock_slip_visibility()
 
     def _connect_signals(self):
@@ -272,12 +310,7 @@ class BladeInputsWidget(QWidget):
         """Show/hide mock slip input based on slip mode."""
         is_mock = self._slip_mode == "Mock"
         self.mock_slip_spin.setVisible(is_mock)
-        # Find the label
-        form_layout = self.layout()
-        for i in range(form_layout.rowCount()):
-            label = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
-            if label and label.widget() and label.widget().text() == "Mock slip δ:":
-                label.widget().setVisible(is_mock)
+        self.mock_slip_label.setVisible(is_mock)
 
     def get_blade_count(self) -> int:
         return self._blade_count
@@ -294,7 +327,7 @@ class BladeInputsWidget(QWidget):
 
 class SlipCalculationWidget(QWidget):
     """
-    Widget displaying slip calculation results (γ, δ, f_i, k_w, cu_slipped).
+    Widget displaying slip calculation results with method selector and data table.
     """
 
     def __init__(self, parent=None):
@@ -305,31 +338,77 @@ class SlipCalculationWidget(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
-        # Title
-        title = QLabel("Slip Calculation (Outlet)")
-        title.setStyleSheet("font-weight: bold; color: #cdd6f4;")
-        layout.addWidget(title)
+        # Method selector (ComboBox)
+        method_layout = QHBoxLayout()
+        method_layout.setSpacing(6)
 
-        # Results display
-        self.results_text = QTextEdit()
-        self.results_text.setReadOnly(True)
-        self.results_text.setMaximumHeight(150)
-        self.results_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e2e;
+        method_label = QLabel("Method:")
+        method_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        method_layout.addWidget(method_label)
+
+        self.method_combo = QComboBox()
+        self.method_combo.addItems(["Mock"])  # Şimdilik tek eleman
+        self.method_combo.setFixedWidth(100)
+        self.method_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
-                padding: 6px;
-                font-family: 'Courier New', monospace;
+                padding: 3px;
                 font-size: 10px;
             }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #313244;
+                color: #cdd6f4;
+                selection-background-color: #45475a;
+            }
         """)
-        layout.addWidget(self.results_text)
+        method_layout.addWidget(self.method_combo)
+        method_layout.addStretch()
 
-        # Formula collapsible section (simple button toggle)
-        self.formula_button = QPushButton("Show Formula/Assumptions")
+        layout.addLayout(method_layout)
+
+        # Results data table
+        self.results_table = QTableWidget()
+        self.results_table.setColumnCount(2)
+        self.results_table.setHorizontalHeaderLabels(['Parameter', 'Value'])
+        self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.results_table.setColumnWidth(1, 80)
+        self.results_table.setMaximumHeight(180)
+        self.results_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e2e;
+                color: #cdd6f4;
+                gridline-color: #45475a;
+                border: 1px solid #45475a;
+                font-size: 10px;
+            }
+            QTableWidget::item {
+                padding: 3px;
+            }
+            QHeaderView::section {
+                background-color: #313244;
+                color: #cdd6f4;
+                padding: 4px;
+                border: 1px solid #45475a;
+                font-weight: bold;
+                font-size: 9px;
+            }
+        """)
+        self.results_table.verticalHeader().setVisible(False)
+        self.results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.results_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+
+        layout.addWidget(self.results_table)
+
+        # Formula collapsible section
+        self.formula_button = QPushButton("▸ Show Formula/Assumptions")
         self.formula_button.setCheckable(True)
         self.formula_button.setStyleSheet("""
             QPushButton {
@@ -338,6 +417,7 @@ class SlipCalculationWidget(QWidget):
                 border: 1px solid #45475a;
                 padding: 4px;
                 text-align: left;
+                font-size: 10px;
             }
             QPushButton:hover {
                 background-color: #45475a;
@@ -351,7 +431,7 @@ class SlipCalculationWidget(QWidget):
 
         self.formula_text = QTextEdit()
         self.formula_text.setReadOnly(True)
-        self.formula_text.setMaximumHeight(200)
+        self.formula_text.setMaximumHeight(180)
         self.formula_text.setVisible(False)
         self.formula_text.setStyleSheet("""
             QTextEdit {
@@ -392,33 +472,60 @@ class SlipCalculationWidget(QWidget):
 
     def _toggle_formula(self, checked):
         self.formula_text.setVisible(checked)
-        self.formula_button.setText("Hide Formula/Assumptions" if checked else "Show Formula/Assumptions")
+        arrow = "▾" if checked else "▸"
+        text = "Hide Formula/Assumptions" if checked else "Show Formula/Assumptions"
+        self.formula_button.setText(f"{arrow} {text}")
 
     def update_slip_result(self, slip_result: SlipCalculationResult, u2: float = None, cu2_inf: float = None):
         """Update displayed slip calculation results."""
         self._slip_result = slip_result
 
         if slip_result is None:
-            self.results_text.setPlainText("No slip calculation available.")
+            self.results_table.setRowCount(1)
+            self.results_table.setItem(0, 0, QTableWidgetItem("No data"))
+            self.results_table.setItem(0, 1, QTableWidgetItem("-"))
             return
 
-        # Format results
-        text = f"Method: {slip_result.method}\n"
-        text += f"γ (slip coefficient): {slip_result.gamma:.4f}\n"
-        text += f"δ (slip angle): {slip_result.slip_angle_deg:.2f}°\n"
-        text += f"f_i: {slip_result.f_i:.4f}\n"
-        text += f"k_w: {slip_result.k_w:.4f}\n"
+        # Prepare data rows with hierarchy
+        data_rows = []
 
+        # Main results
+        data_rows.append(("Method", slip_result.method))
+        data_rows.append(("  γ (slip coeff.)", f"{slip_result.gamma:.4f}"))
+        data_rows.append(("  δ (slip angle)", f"{slip_result.slip_angle_deg:.2f}°"))
+
+        # Correction factors (sub-items)
+        data_rows.append(("Correction factors:", ""))
+        data_rows.append(("  f_i", f"{slip_result.f_i:.4f}"))
+        data_rows.append(("  k_w", f"{slip_result.k_w:.4f}"))
+
+        # Velocity results if available
         if u2 is not None and cu2_inf is not None:
             from pumpforge3d_core.analysis.blade_properties import calculate_cu_slipped
             cu2 = calculate_cu_slipped(u2, cu2_inf, slip_result.gamma)
-            text += f"\ncu2∞ (theoretical): {cu2_inf:.2f} m/s\n"
-            text += f"cu2 (slipped): {cu2:.2f} m/s\n"
+            data_rows.append(("Velocities:", ""))
+            data_rows.append(("  cu2∞ (theor.)", f"{cu2_inf:.2f} m/s"))
+            data_rows.append(("  cu2 (slipped)", f"{cu2:.2f} m/s"))
 
-        if slip_result.warning:
-            text += f"\nWarning: {slip_result.warning}"
+        # Populate table
+        self.results_table.setRowCount(len(data_rows))
+        for i, (param, value) in enumerate(data_rows):
+            param_item = QTableWidgetItem(param)
+            value_item = QTableWidgetItem(value)
 
-        self.results_text.setPlainText(text)
+            # Style header rows differently
+            if param.endswith(":"):
+                param_item.setForeground(Qt.GlobalColor.cyan)
+                font = param_item.font()
+                font.setBold(True)
+                param_item.setFont(font)
+
+            self.results_table.setItem(i, 0, param_item)
+            self.results_table.setItem(i, 1, value_item)
+
+        # Adjust row heights
+        for i in range(self.results_table.rowCount()):
+            self.results_table.setRowHeight(i, 22)
 
 
 class TriangleDetailsWidget(QWidget):
