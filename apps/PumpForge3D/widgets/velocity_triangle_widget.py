@@ -328,7 +328,7 @@ class VelocityTriangleWidget(QWidget):
                 }
             """)
         
-        # Create 2×2 subplots with independent axes (no syncing)
+        # Create 2×2 subplots
         self.main_fig.clear()
         axes = self.main_fig.subplots(2, 2)
 
@@ -339,26 +339,61 @@ class VelocityTriangleWidget(QWidget):
             ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)
         ]
 
-        # Draw each triangle with independent axis limits
+        # Calculate unified axis limits for all 4 plots (to ensure equal size)
+        margin = 1.5
+        all_u = [tri.u for _, tri, _ in triangles_data]
+        all_wu = [tri.wu for _, tri, _ in triangles_data]
+        all_cm = [tri.cm for _, tri, _ in triangles_data]
+
+        # Unified limits for all plots
+        xmax = max(all_u) + margin
+        xmin = min(0, min(all_wu)) - margin
+        ymax = max(all_cm) * self._k_blockage * 1.15 + margin
+        ymin = -margin - 1.2
+
+        # Draw each triangle with unified axis limits
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
 
-            # Calculate independent axis limits for this triangle
-            margin = 1.5
-            xmax = tri.u + margin
-            xmin = min(0, tri.wu) - margin
-            ymax = tri.cm * self._k_blockage * 1.15 + margin
-
+            # Apply unified limits to all plots (ensures equal physical size)
             ax.set_xlim(xmin, xmax)
-            ax.set_ylim(-margin - 2, ymax)
+            ax.set_ylim(ymin, ymax)
+            ax.set_aspect('equal', adjustable='box')
+
+        # Create unified legend for entire figure
+        self._create_unified_legend()
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
-        
-        self.main_fig.tight_layout()
+
+        self.main_fig.tight_layout(rect=[0, 0, 1, 0.97])  # Leave space for legend
         self.main_canvas.draw()
+
+    def _create_unified_legend(self):
+        """Create a unified legend for the entire figure."""
+        legend_elements = [
+            Line2D([0], [0], color=self.COLOR_U, lw=2.0, label='u (blade speed)'),
+            Line2D([0], [0], color=self.COLOR_C, lw=2.0, label='c (absolute)'),
+            Line2D([0], [0], color=self.COLOR_W, lw=2.0, label='w (relative)'),
+            Line2D([0], [0], color='#89b4fa', lw=1.5, linestyle='-', label='Flow triangle (solid)'),
+            Line2D([0], [0], color='#89b4fa', lw=1.5, linestyle='--', label='Blocked triangle (dashed)'),
+            Line2D([0], [0], color=self.COLOR_W, lw=4.0, alpha=0.35, label='Blade angle (thick)'),
+        ]
+
+        # Add legend to the figure (centered at top)
+        self.main_fig.legend(
+            handles=legend_elements,
+            loc='upper center',
+            ncol=6,
+            fontsize=9,
+            facecolor='#313244',
+            edgecolor='#45475a',
+            labelcolor='#cdd6f4',
+            framealpha=0.95,
+            bbox_to_anchor=(0.5, 0.99)
+        )
 
     def _update_data_viewer(self, inlet_hub, inlet_tip, outlet_hub, outlet_tip):
         """Populate data viewer table with comprehensive triangle data."""
@@ -468,26 +503,7 @@ class VelocityTriangleWidget(QWidget):
         c_mid = (u + apex) / 2
         ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center',
                bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
-        
-        # Component spans (wu and cu) below baseline with values
-        span_y = -1.5
-        label_y = -2.8
 
-        # wu span: from 0 to wu
-        if abs(tri.wu) > 0.1:
-            ax.annotate('', xy=(tri.wu, span_y), xytext=(0, span_y),
-                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            ax.text(tri.wu/2, label_y, f'wu={tri.wu:.1f}', fontsize=9, color=self.COLOR_W, ha='center',
-                   bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
-
-        # cu span: from wu to u
-        cu_val = tri.cu  # Use tri.cu directly for accuracy
-        if abs(cu_val) > 0.1:
-            ax.annotate('', xy=(tri.u, span_y), xytext=(tri.wu, span_y),
-                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            ax.text((tri.wu + tri.u)/2, label_y, f'cu={cu_val:.1f}', fontsize=9, color=self.COLOR_C, ha='center',
-                   bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
-        
         # Angle arcs with improved sizing and labels
         arc_r = min(tri.u, tri.cm) * 0.2
         if arc_r < 1.8:
@@ -524,17 +540,6 @@ class VelocityTriangleWidget(QWidget):
         
         # Baseline
         ax.axhline(0, color='#45475a', lw=0.3, alpha=0.5)
-        ax.set_aspect('equal')
-
-        # Legend - positioned at lower right to avoid overlapping with vectors
-        legend_elements = [
-            Line2D([0], [0], color=self.COLOR_C, lw=1.3, label='c (abs)'),
-            Line2D([0], [0], color=self.COLOR_W, lw=1.3, label='w (rel)'),
-            Line2D([0], [0], color=self.COLOR_W, lw=4.0, alpha=0.35, label='Blade'),
-        ]
-        ax.legend(handles=legend_elements, loc='lower right', fontsize=8,
-                 facecolor='#313244', edgecolor='#45475a', labelcolor='#cdd6f4',
-                 framealpha=0.9)
 
 
 if __name__ == "__main__":
