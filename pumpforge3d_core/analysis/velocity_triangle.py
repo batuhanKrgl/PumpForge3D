@@ -207,3 +207,147 @@ def compute_triangles_for_station(
     tip = compute_triangle(beta_tip, r_tip, rpm, cm, alpha1_deg)
     return (hub, tip)
 
+
+@dataclass
+class DerivedTriangleData:
+    """
+    Derived velocity triangle data including blockage and slip effects.
+    
+    Contains:
+    - Flow: base triangle (no corrections)
+    - Blocked: triangle with blockage-corrected cm
+    - Blade: blade angle (beta_blade) with incidence (inlet) or slip (outlet)
+    """
+    # Base flow triangle
+    flow: TriangleData
+    
+    # Blockage parameters
+    k_blockage: float
+    cm_blocked: float
+    
+    # Blocked triangle values
+    cu_blocked: float
+    wu_blocked: float
+    c_blocked: float
+    w_blocked: float
+    alpha_blocked: float
+    beta_blocked: float
+    
+    # Blade/slip parameters (inlet: incidence, outlet: slip)
+    incidence: float = 0.0      # Inlet incidence (deg)
+    slip: float = 0.0           # Outlet slip/deviation (deg)
+    beta_blade: float = 0.0     # Blade angle
+    
+    # Slipped values (outlet only)
+    cu_slipped: float = 0.0
+    wu_slipped: float = 0.0
+    c_slipped: float = 0.0
+    w_slipped: float = 0.0
+    beta_slipped: float = 0.0
+
+
+def compute_derived_triangle(
+    base: TriangleData,
+    k_blockage: float = 1.10,
+    incidence: float = 0.0,
+    slip: float = 0.0,
+    is_inlet: bool = True
+) -> DerivedTriangleData:
+    """
+    Compute derived triangle with blockage and incidence/slip effects.
+    
+    Args:
+        base: Base flow triangle
+        k_blockage: Blockage multiplier (1.0-1.5), default 1.10
+        incidence: Inlet incidence angle (degrees), ignored for outlet
+        slip: Outlet slip/deviation angle (degrees), ignored for inlet
+        is_inlet: True for inlet, False for outlet
+        
+    Returns:
+        DerivedTriangleData with all derived values
+    """
+    # A) Blockage: cm_blocked = cm × K_blockage
+    cm_blocked = base.cm * k_blockage
+    
+    # u and cu unchanged for blocked
+    u = base.u
+    cu_blocked = base.cu
+    
+    # Recompute blocked triangle
+    # c_blocked = sqrt(cu² + cm_blocked²)
+    c_blocked = math.sqrt(cu_blocked**2 + cm_blocked**2)
+    
+    # w_blocked from: w = c - u (vectorially)
+    # wu_blocked = cu_blocked - u? No, wu = u - cu per our convention
+    # Actually, from identity: wu + cu = u => wu = u - cu
+    wu_blocked = u - cu_blocked
+    w_blocked = math.sqrt(wu_blocked**2 + cm_blocked**2)
+    
+    # Blocked angles
+    # beta_blocked = atan(cm_blocked / wu_blocked)
+    if abs(wu_blocked) < 0.001:
+        beta_blocked = 90.0
+    else:
+        beta_blocked = math.degrees(math.atan(cm_blocked / abs(wu_blocked)))
+        if wu_blocked < 0:
+            beta_blocked = 180 - beta_blocked
+    
+    # alpha_blocked = atan(cm_blocked / cu_blocked)
+    if abs(cu_blocked) < 0.001:
+        alpha_blocked = 90.0
+    else:
+        alpha_blocked = math.degrees(math.atan(cm_blocked / abs(cu_blocked)))
+        if cu_blocked < 0:
+            alpha_blocked = 180 - alpha_blocked
+    
+    # B) Inlet: blade angle = beta_blocked + incidence
+    # C) Outlet: beta_slipped = beta_blocked + slip
+    if is_inlet:
+        beta_blade = beta_blocked + incidence
+        # For inlet, slip values are not used
+        cu_slipped = cu_blocked
+        wu_slipped = wu_blocked
+        c_slipped = c_blocked
+        w_slipped = w_blocked
+        beta_slipped = beta_blocked
+    else:
+        # Outlet: apply slip
+        beta_slipped = beta_blocked + slip
+        beta_blade = beta_slipped  # Blade angle at outlet
+        
+        # Compute slipped wu from beta_slipped
+        # tan(beta_slipped) = cm_blocked / wu_slipped
+        beta_s_rad = math.radians(beta_slipped)
+        tan_beta_s = math.tan(beta_s_rad)
+        
+        if abs(tan_beta_s) < 0.01:
+            wu_slipped = cm_blocked * 100  # Clamp
+        else:
+            wu_slipped = cm_blocked / tan_beta_s
+        
+        # cu_slipped from identity: wu + cu = u => cu = u - wu
+        cu_slipped = u - wu_slipped
+        
+        # Recompute slipped velocities
+        c_slipped = math.sqrt(cu_slipped**2 + cm_blocked**2)
+        w_slipped = math.sqrt(wu_slipped**2 + cm_blocked**2)
+    
+    return DerivedTriangleData(
+        flow=base,
+        k_blockage=k_blockage,
+        cm_blocked=cm_blocked,
+        cu_blocked=cu_blocked,
+        wu_blocked=wu_blocked,
+        c_blocked=c_blocked,
+        w_blocked=w_blocked,
+        alpha_blocked=alpha_blocked,
+        beta_blocked=beta_blocked,
+        incidence=incidence,
+        slip=slip,
+        beta_blade=beta_blade,
+        cu_slipped=cu_slipped,
+        wu_slipped=wu_slipped,
+        c_slipped=c_slipped,
+        w_slipped=w_slipped,
+        beta_slipped=beta_slipped
+    )
