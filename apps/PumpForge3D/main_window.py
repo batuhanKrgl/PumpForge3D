@@ -19,6 +19,7 @@ from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
 from .tabs.design_tab import DesignTab
+from .tabs.blade_properties_tab import BladePropertiesTab
 from .tabs.export_tab import ExportTab
 from .widgets.viewer_3d import Viewer3DWidget
 from .widgets.object_list import ObjectVisibilityList
@@ -282,7 +283,11 @@ class MainWindow(QMainWindow):
         # Design tab
         self.design_tab = DesignTab(self.design, undo_stack=self.undo_stack)
         self.tab_widget.addTab(self.design_tab, "Design")
-        
+
+        # Blade Properties tab
+        self.blade_properties_tab = BladePropertiesTab()
+        self.tab_widget.addTab(self.blade_properties_tab, "Blade properties")
+
         # Export tab (always last)
         self.export_tab = ExportTab(self.design)
         self.tab_widget.addTab(self.export_tab, "Export")
