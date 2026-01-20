@@ -9,12 +9,13 @@ import numpy as np
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QFrame, QSizePolicy
+    QDoubleSpinBox, QFrame, QSizePolicy, QLabel
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 
@@ -147,13 +148,47 @@ class VelocityTriangleWidget(QWidget):
         
         input_layout.addStretch()
         main_layout.addWidget(input_panel)
-        
-        # Right: Single figure with 2×2 subplots
+
+        # Right: Plot area with toolbar and status
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(2)
+
+        # Figure with 2×2 subplots
         self.main_fig = Figure(figsize=(10, 8), dpi=100, facecolor='#181825')
         self.main_canvas = FigureCanvas(self.main_fig)
         self.main_canvas.setStyleSheet("background-color: #181825;")
         self.main_canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        main_layout.addWidget(self.main_canvas, 1)
+
+        # Matplotlib toolbar
+        self.toolbar = NavigationToolbar(self.main_canvas, self)
+        self.toolbar.setStyleSheet("""
+            QToolBar { background-color: #313244; border: 1px solid #45475a; spacing: 2px; padding: 2px; }
+            QToolButton { background-color: #313244; color: #cdd6f4; border: none; padding: 3px; }
+            QToolButton:hover { background-color: #45475a; }
+        """)
+
+        # Status label for warnings and debug info
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background-color: #313244;
+                color: #f9e2af;
+                padding: 4px 8px;
+                border: 1px solid #45475a;
+                border-radius: 3px;
+                font-size: 9px;
+            }
+        """)
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        right_layout.addWidget(self.toolbar)
+        right_layout.addWidget(self.main_canvas, 1)
+        right_layout.addWidget(self.status_label)
+
+        main_layout.addWidget(right_widget, 1)
     
     def _spin(self, min_v, max_v, val, suffix="", decimals=1):
         s = QDoubleSpinBox()
@@ -200,8 +235,68 @@ class VelocityTriangleWidget(QWidget):
         inlet_tip = compute_triangle(self._beta_in_tip, self._r1_tip, self._rpm, self._cm1, self._alpha1, use_beta=False)
         outlet_hub = compute_triangle(self._beta_out_hub, self._r2_hub, self._rpm, self._cm2, 90.0, use_beta=True)
         outlet_tip = compute_triangle(self._beta_out_tip, self._r2_tip, self._rpm, self._cm2, 90.0, use_beta=True)
-        
+
         all_tris = [inlet_hub, inlet_tip, outlet_hub, outlet_tip]
+
+        # Collect warnings and validate data
+        warnings = []
+        for idx, tri in enumerate(all_tris):
+            labels = ["Inlet Hub", "Inlet Tip", "Outlet Hub", "Outlet Tip"]
+            # Check for warnings from compute_triangle
+            if tri.warning:
+                warnings.append(f"{labels[idx]}: {tri.warning}")
+
+            # Validate finite values
+            if not all(np.isfinite([tri.u, tri.cm, tri.cu, tri.wu, tri.c, tri.w, tri.alpha, tri.beta])):
+                warnings.append(f"{labels[idx]}: NaN/Inf detected in triangle data")
+                # Sanitize: replace NaN/Inf with safe fallback
+                if not np.isfinite(tri.u):
+                    tri.u = 0.0
+                if not np.isfinite(tri.cm):
+                    tri.cm = 0.0
+                if not np.isfinite(tri.cu):
+                    tri.cu = 0.0
+                if not np.isfinite(tri.wu):
+                    tri.wu = 0.0
+                if not np.isfinite(tri.c):
+                    tri.c = 0.0
+                if not np.isfinite(tri.w):
+                    tri.w = 0.0
+                if not np.isfinite(tri.alpha):
+                    tri.alpha = 90.0
+                if not np.isfinite(tri.beta):
+                    tri.beta = 90.0
+
+        # Update status label
+        if warnings:
+            self.status_label.setText("⚠ " + " | ".join(warnings))
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #313244;
+                    color: #f38ba8;
+                    padding: 4px 8px;
+                    border: 1px solid #f38ba8;
+                    border-radius: 3px;
+                    font-size: 9px;
+                }
+            """)
+        else:
+            # Show key computed values for debugging/validation
+            status_parts = [
+                f"Inlet Hub: α={inlet_hub.alpha:.1f}° β={inlet_hub.beta:.1f}° u={inlet_hub.u:.2f} cu={inlet_hub.cu:.2f} wu={inlet_hub.wu:.2f}",
+                f"Outlet Hub: α={outlet_hub.alpha:.1f}° β={outlet_hub.beta:.1f}° u={outlet_hub.u:.2f} cu={outlet_hub.cu:.2f} wu={outlet_hub.wu:.2f}"
+            ]
+            self.status_label.setText(" | ".join(status_parts))
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #313244;
+                    color: #a6e3a1;
+                    padding: 4px 8px;
+                    border: 1px solid #45475a;
+                    border-radius: 3px;
+                    font-size: 9px;
+                }
+            """)
         
         # Calculate per-column xlim (Hub column, Tip column)
         # Column 0 (Hub): inlet_hub, outlet_hub
@@ -255,12 +350,12 @@ class VelocityTriangleWidget(QWidget):
         self.main_canvas.draw()
     
     def _draw_tri(self, ax, tri, beta_blade, k, title):
-        """Draw triangle on given axes."""
+        """Draw triangle on given axes with improved readability and stability."""
         ax.set_facecolor('#1e1e2e')
-        ax.set_title(title, color='#cdd6f4', fontsize=9, fontweight='bold')
+        ax.set_title(title, color='#cdd6f4', fontsize=10, fontweight='bold')
         for sp in ax.spines.values():
             sp.set_color('#45475a')
-        ax.tick_params(colors='#a6adc8', labelsize=7)
+        ax.tick_params(colors='#a6adc8', labelsize=8)
         
         # Geometry
         o = np.array([0, 0])
@@ -270,97 +365,119 @@ class VelocityTriangleWidget(QWidget):
         # Blocked geometry
         cm_b = tri.cm * k
         apex_b = np.array([tri.wu, cm_b])
-        
-        # Blade line
-        beta_rad = math.radians(beta_blade)
+
+        # Blade line - FIXED: properly handle singularities at beta=0° and beta=90°
+        # tan(beta) is near zero when beta is near 0° (horizontal) or 180°
+        # tan(beta) is infinite when beta is near 90° (vertical)
         blade_y = cm_b * 1.1
-        blade_x = blade_y / math.tan(beta_rad) if abs(math.tan(beta_rad)) > 0.01 else 0
+        # Avoid singularities: check if beta_blade is near 0°, 90°, or 180°
+        if abs(beta_blade) < 2.0 or abs(beta_blade - 180) < 2.0:
+            # Near horizontal blade (beta ≈ 0° or 180°)
+            blade_x = blade_y * 100 if beta_blade > 0 else -blade_y * 100  # Very large x
+        elif abs(beta_blade - 90) < 2.0:
+            # Near vertical blade (beta ≈ 90°)
+            blade_x = 0.0  # Vertical line
+        else:
+            # Normal case: blade_x = blade_y / tan(beta)
+            beta_rad = math.radians(beta_blade)
+            tan_beta = math.tan(beta_rad)
+            blade_x = blade_y / tan_beta
         blade_end = np.array([blade_x, blade_y])
         
         # u baseline
-        ax.annotate('', xy=u, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_U, lw=1.2))
-        ax.text(tri.u/2, 0, 'u', fontsize=9, color=self.COLOR_U, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.1', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
-        
+        ax.annotate('', xy=u, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_U, lw=1.5))
+        ax.text(tri.u/2, 0, 'u', fontsize=10, color=self.COLOR_U, ha='center', va='center',
+               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+
         # w (flow) - green solid
-        ax.annotate('', xy=apex, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.0))
-        
+        ax.annotate('', xy=apex, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.3))
+
         # c (flow) - blue solid
-        ax.annotate('', xy=apex, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=1.0))
-        
+        ax.annotate('', xy=apex, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=1.3))
+
         # w' c' (blocked) - dashed
         if k > 1.001:
-            ax.annotate('', xy=apex_b, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=0.8, ls='--'))
-            ax.annotate('', xy=apex_b, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=0.8, ls='--'))
-        
+            ax.annotate('', xy=apex_b, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.0, ls='--'))
+            ax.annotate('', xy=apex_b, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=1.0, ls='--'))
+
         # Blade line - thick transparent
-        ax.plot([o[0], blade_end[0]], [o[1], blade_end[1]], color=self.COLOR_W, lw=3.5, alpha=0.35)
-        
+        ax.plot([o[0], blade_end[0]], [o[1], blade_end[1]], color=self.COLOR_W, lw=4.0, alpha=0.35)
+
         # Labels on vectors
         w_mid = apex / 2
-        ax.text(w_mid[0], w_mid[1], 'w', fontsize=9, color=self.COLOR_W, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.1', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
-        
+        ax.text(w_mid[0], w_mid[1], 'w', fontsize=10, color=self.COLOR_W, ha='center', va='center',
+               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+
         c_mid = (u + apex) / 2
-        ax.text(c_mid[0], c_mid[1], 'c', fontsize=9, color=self.COLOR_C, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.1', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+        ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center',
+               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
         
-        # Component spans (wu and cu) below baseline
+        # Component spans (wu and cu) below baseline with values
         span_y = -1.5
-        label_y = -2.5
-        
+        label_y = -2.8
+
         # wu span: from 0 to wu
         if abs(tri.wu) > 0.1:
             ax.annotate('', xy=(tri.wu, span_y), xytext=(0, span_y),
-                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.8))
-            ax.text(tri.wu/2, label_y, 'wu', fontsize=8, color=self.COLOR_W, ha='center')
-        
+                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
+            ax.text(tri.wu/2, label_y, f'wu={tri.wu:.1f}', fontsize=9, color=self.COLOR_W, ha='center',
+                   bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
+
         # cu span: from wu to u
-        cu_val = tri.u - tri.wu
+        cu_val = tri.cu  # Use tri.cu directly for accuracy
         if abs(cu_val) > 0.1:
             ax.annotate('', xy=(tri.u, span_y), xytext=(tri.wu, span_y),
-                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.8))
-            ax.text((tri.wu + tri.u)/2, label_y, 'cu', fontsize=8, color=self.COLOR_C, ha='center')
+                       arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
+            ax.text((tri.wu + tri.u)/2, label_y, f'cu={cu_val:.1f}', fontsize=9, color=self.COLOR_C, ha='center',
+                   bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
         
-        # Angle arcs
+        # Angle arcs with improved sizing and labels
         arc_r = min(tri.u, tri.cm) * 0.2
-        if arc_r < 1.5:
-            arc_r = 1.5
-        
-        # β arc (flow)
-        beta_flow = math.degrees(math.atan2(tri.cm, tri.wu)) if abs(tri.wu) > 0.01 else 90
-        ax.add_patch(Arc(o, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow, color=self.COLOR_W, lw=1.0))
-        
+        if arc_r < 1.8:
+            arc_r = 1.8
+
+        # β arc (flow) - angle from horizontal axis to w vector
+        # beta_flow should always be measured from positive x-axis counter-clockwise
+        beta_flow = math.degrees(math.atan2(tri.cm, tri.wu)) if abs(tri.wu) > 0.01 else 90.0
+        # Ensure beta_flow is in [0, 180] range
+        if beta_flow < 0:
+            beta_flow += 180
+        ax.add_patch(Arc(o, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow, color=self.COLOR_W, lw=1.2))
+
         # β arc (blade) - thick transparent
-        ax.add_patch(Arc(o, arc_r*2.4, arc_r*2.4, angle=0, theta1=0, theta2=beta_blade, color=self.COLOR_W, lw=2.5, alpha=0.35))
-        
-        # β label
+        ax.add_patch(Arc(o, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_blade, color=self.COLOR_W, lw=2.8, alpha=0.35))
+
+        # β label - positioned at midpoint of flow angle arc
         mid_b = math.radians(beta_flow / 2)
-        ax.text(arc_r * 1.4 * math.cos(mid_b), arc_r * 1.4 * math.sin(mid_b), 
-               'β', fontsize=9, color=self.COLOR_W, fontweight='bold')
-        
-        # α arc - between u baseline and c vector
-        c_vec = apex - u
-        alpha_deg = math.degrees(math.atan2(c_vec[1], -c_vec[0]))
+        ax.text(arc_r * 1.5 * math.cos(mid_b), arc_r * 1.5 * math.sin(mid_b),
+               'β', fontsize=11, color=self.COLOR_W, fontweight='bold', ha='center', va='center')
+
+        # α arc - angle from u baseline (negative x from u) to c vector
+        # This measures the absolute flow angle at the impeller tip
+        c_vec = apex - u  # c vector components
+        alpha_deg = math.degrees(math.atan2(c_vec[1], -c_vec[0]))  # Angle from -x axis
         if alpha_deg < 0:
             alpha_deg += 180
-        ax.add_patch(Arc(u, arc_r*2, arc_r*2, angle=0, theta1=180-alpha_deg, theta2=180, color=self.COLOR_C, lw=1.0))
-        alpha_mid = math.radians(180 - alpha_deg/2)
-        ax.text(u[0] + arc_r * 1.3 * math.cos(alpha_mid), arc_r * 1.3 * math.sin(alpha_mid), 
-               'α', fontsize=9, color=self.COLOR_C, fontweight='bold')
+        # Guard against edge cases
+        if alpha_deg > 0.1 and alpha_deg < 179.9:
+            ax.add_patch(Arc(u, arc_r*2, arc_r*2, angle=0, theta1=180-alpha_deg, theta2=180, color=self.COLOR_C, lw=1.2))
+            alpha_mid = math.radians(180 - alpha_deg/2)
+            ax.text(u[0] + arc_r * 1.4 * math.cos(alpha_mid), arc_r * 1.4 * math.sin(alpha_mid),
+                   'α', fontsize=11, color=self.COLOR_C, fontweight='bold', ha='center', va='center')
         
         # Baseline
         ax.axhline(0, color='#45475a', lw=0.3, alpha=0.5)
         ax.set_aspect('equal')
-        
-        # Legend (only once per axes - will duplicate but that's fine)
+
+        # Legend - positioned at lower right to avoid overlapping with vectors
         legend_elements = [
-            Line2D([0], [0], color=self.COLOR_C, lw=1.0, label='c'),
-            Line2D([0], [0], color=self.COLOR_W, lw=1.0, label='w'),
-            Line2D([0], [0], color=self.COLOR_W, lw=3.5, alpha=0.35, label='Blade'),
+            Line2D([0], [0], color=self.COLOR_C, lw=1.3, label='c (abs)'),
+            Line2D([0], [0], color=self.COLOR_W, lw=1.3, label='w (rel)'),
+            Line2D([0], [0], color=self.COLOR_W, lw=4.0, alpha=0.35, label='Blade'),
         ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=6, 
-                 facecolor='#313244', edgecolor='#45475a', labelcolor='#cdd6f4')
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=8,
+                 facecolor='#313244', edgecolor='#45475a', labelcolor='#cdd6f4',
+                 framealpha=0.9)
 
 
 if __name__ == "__main__":
