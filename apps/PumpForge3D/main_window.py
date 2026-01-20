@@ -311,12 +311,18 @@ class MainWindow(QMainWindow):
         right_splitter.setStretchFactor(1, 1)
         
         self.main_splitter.addWidget(right_splitter)
-        
+
+        # Store right splitter reference for hiding/showing
+        self.right_splitter = right_splitter
+
         # Set main splitter proportions (75% tabs, 25% 3D)
         self.main_splitter.setSizes([1000, 400])
         self.main_splitter.setStretchFactor(0, 3)
         self.main_splitter.setStretchFactor(1, 1)
-        
+
+        # Store initial 3D viewer size for restoration
+        self._viewer_size_before_hide = 400
+
         main_layout.addWidget(self.main_splitter)
         
         # Status bar
@@ -461,10 +467,35 @@ class MainWindow(QMainWindow):
         self.viewer_3d.set_object_visibility(name, visible)
     
     def _on_tab_changed(self, index: int):
-        """Handle tab change."""
-        tab_names = ["Design", "Export"]
-        if 0 <= index < len(tab_names):
-            self.status_bar.showMessage(f"{tab_names[index]} tab")
+        """Handle tab change - hide 3D viewer for Blade Properties tab."""
+        tab_names = ["Design", "Blade properties", "Export"]
+
+        # Get current tab name
+        current_tab_name = self.tab_widget.tabText(index)
+
+        # Hide 3D viewer for Blade Properties tab
+        if current_tab_name == "Blade properties":
+            # Store current splitter sizes if not already hidden
+            sizes = self.main_splitter.sizes()
+            if sizes[1] > 0:
+                self._viewer_size_before_hide = sizes[1]
+
+            # Hide the right panel (3D viewer + object list)
+            self.right_splitter.setVisible(False)
+            self.main_splitter.setSizes([sizes[0] + sizes[1], 0])
+
+            self.status_bar.showMessage("Blade properties tab (3D viewer hidden)")
+        else:
+            # Show 3D viewer for other tabs
+            if not self.right_splitter.isVisible():
+                self.right_splitter.setVisible(True)
+                # Restore previous size
+                total_width = self.main_splitter.width()
+                tab_width = total_width - self._viewer_size_before_hide
+                self.main_splitter.setSizes([tab_width, self._viewer_size_before_hide])
+
+            if 0 <= index < len(tab_names):
+                self.status_bar.showMessage(f"{tab_names[index]} tab")
     
     def _new_design(self):
         """Create a new design."""

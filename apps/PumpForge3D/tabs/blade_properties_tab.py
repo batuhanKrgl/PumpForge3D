@@ -1,17 +1,19 @@
 """
-Blade Properties Tab - Central workspace for blade-related inputs and velocity triangles.
+Blade Properties Tab - Purpose-focused workspace for blade parameters and velocity triangles.
+
+Reorganized layout (UI/UX fix):
+- 3D viewer hidden when this tab is active (managed by main window)
+- 3-column layout: [Inputs] | [Velocity Triangles] | [Analysis & Details]
+- Collapsible input groups for space efficiency
+- No horizontal stretching on numeric inputs
+- Compact, readable, goal-oriented workspace
 
 Based on CFturbo manual section 7.3.1.4 (Velocity Triangles) and 7.3.1.4.2.1 (Slip by Gülich/Wiesner).
-
-Layout:
-- Left panel: Inputs (thickness, blade count, incidence, slip)
-- Center: Velocity triangle visualizations (2×2 subplots)
-- Right panel: Analysis plots and detailed triangle info
 """
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
-    QFormLayout, QScrollArea, QFrame, QLabel
+    QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -30,9 +32,63 @@ from pumpforge3d_core.analysis.velocity_triangle import (
 )
 
 
+class CollapsibleGroupBox(QGroupBox):
+    """QGroupBox with collapsible functionality via checkable title."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(title, parent)
+        self.setCheckable(True)
+        self.setChecked(True)  # Expanded by default
+        self.toggled.connect(self._on_toggled)
+
+        # Style for collapsible group
+        self.setStyleSheet("""
+            QGroupBox {
+                color: #cdd6f4;
+                font-weight: bold;
+                border: 1px solid #45475a;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 16px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 2px 6px;
+                color: #89b4fa;
+            }
+            QGroupBox::indicator {
+                width: 12px;
+                height: 12px;
+                margin-right: 4px;
+            }
+            QGroupBox::indicator:checked {
+                image: none;
+                background-color: #89b4fa;
+                border-radius: 2px;
+            }
+            QGroupBox::indicator:unchecked {
+                image: none;
+                background-color: #45475a;
+                border-radius: 2px;
+            }
+        """)
+
+    def _on_toggled(self, checked):
+        """Show/hide content when toggled."""
+        # Hide all child widgets when uncollapsed
+        for child in self.findChildren(QWidget, Qt.FindChildOption.FindDirectChildrenOnly):
+            child.setVisible(checked)
+
+
 class BladePropertiesTab(QWidget):
     """
-    Blade Properties Tab - main workspace for blade parameters and velocity triangles.
+    Blade Properties Tab - reorganized for optimal UX.
+
+    Layout: 3 columns
+    - Left (23%): Inputs (collapsible groups, compact controls)
+    - Center (52%): Velocity triangles (2×2 main visual)
+    - Right (25%): Analysis & Details (plots + numeric data)
     """
 
     # Signals
@@ -55,38 +111,44 @@ class BladePropertiesTab(QWidget):
         self._update_all()
 
     def _setup_ui(self):
-        """Setup the tab UI layout."""
+        """Setup the 3-column tab layout."""
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(6, 6, 6, 6)
-        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setSpacing(4)
 
-        # Create main horizontal splitter
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Create main horizontal splitter with 3 panels
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setHandleWidth(3)
+        self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing to 0
 
-        # === LEFT PANEL: Inputs ===
+        # === LEFT PANEL: Inputs (compact, collapsible) ===
         left_panel = self._create_left_panel()
-        main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(left_panel)
 
-        # === CENTER PANEL: Velocity Triangles ===
-        self.triangle_widget = VelocityTriangleWidget()
-        main_splitter.addWidget(self.triangle_widget)
+        # === CENTER PANEL: Velocity Triangles (main visual area) ===
+        center_panel = self._create_center_panel()
+        self.main_splitter.addWidget(center_panel)
 
         # === RIGHT PANEL: Analysis & Details ===
         right_panel = self._create_right_panel()
-        main_splitter.addWidget(right_panel)
+        self.main_splitter.addWidget(right_panel)
 
-        # Set splitter proportions: 250px : flexible : 350px
-        main_splitter.setStretchFactor(0, 0)  # Fixed width
-        main_splitter.setStretchFactor(1, 1)  # Flexible
-        main_splitter.setStretchFactor(2, 0)  # Fixed width
+        # Set initial proportions: 23% | 52% | 25% (for 1400px total = ~320 | 728 | 350)
+        total_hint = 1400
+        self.main_splitter.setSizes([int(total_hint * 0.23), int(total_hint * 0.52), int(total_hint * 0.25)])
+        self.main_splitter.setStretchFactor(0, 23)  # Inputs: less stretch
+        self.main_splitter.setStretchFactor(1, 52)  # Triangles: most stretch
+        self.main_splitter.setStretchFactor(2, 25)  # Analysis: moderate stretch
 
-        main_layout.addWidget(main_splitter)
+        main_layout.addWidget(self.main_splitter)
 
     def _create_left_panel(self) -> QWidget:
-        """Create left input panel."""
+        """Create left input panel with collapsible groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMaximumWidth(280)
+        panel.setMinimumWidth(280)
+        panel.setMaximumWidth(380)
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -94,111 +156,129 @@ class BladePropertiesTab(QWidget):
             }
         """)
 
-        # Scroll area for inputs
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background-color: #181825; }")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(4)
 
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(8, 8, 8, 8)
-        scroll_layout.setSpacing(12)
-
-        # Title
-        title = QLabel("Blade Properties")
+        # Panel title
+        title = QLabel("⚙ Blade Inputs")
         title.setStyleSheet("""
             QLabel {
                 color: #89b4fa;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: bold;
-                padding: 4px;
+                padding: 6px 4px;
+                background-color: #1e1e2e;
+                border-radius: 3px;
             }
         """)
-        scroll_layout.addWidget(title)
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        panel_layout.addWidget(title)
 
-        # Blade thickness matrix
-        thickness_group = QGroupBox("Blade Thickness")
-        thickness_group.setStyleSheet("""
-            QGroupBox {
-                color: #cdd6f4;
-                font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
-                color: #89b4fa;
-            }
-        """)
+        # Scroll area for collapsible groups
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(6, 6, 6, 6)
+        scroll_layout.setSpacing(8)
+
+        # === 1. Blade Thickness Group (collapsible) ===
+        thickness_group = CollapsibleGroupBox("Blade Thickness")
         thickness_layout = QVBoxLayout(thickness_group)
-        thickness_layout.setContentsMargins(6, 6, 6, 6)
+        thickness_layout.setContentsMargins(8, 8, 8, 8)
+        thickness_layout.setSpacing(6)
 
         self.thickness_widget = BladeThicknessMatrixWidget()
+        self.thickness_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         thickness_layout.addWidget(self.thickness_widget)
+
         scroll_layout.addWidget(thickness_group)
 
-        # Blade inputs (count, incidence, slip mode)
-        inputs_group = QGroupBox("Blade Parameters")
-        inputs_group.setStyleSheet("""
-            QGroupBox {
-                color: #cdd6f4;
-                font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
-                color: #89b4fa;
-            }
-        """)
-        inputs_layout = QVBoxLayout(inputs_group)
-        inputs_layout.setContentsMargins(6, 6, 6, 6)
+        # === 2. Blade Parameters Group (collapsible) ===
+        params_group = CollapsibleGroupBox("Blade Parameters")
+        params_layout = QVBoxLayout(params_group)
+        params_layout.setContentsMargins(8, 8, 8, 8)
+        params_layout.setSpacing(6)
 
         self.blade_inputs_widget = BladeInputsWidget()
-        inputs_layout.addWidget(self.blade_inputs_widget)
-        scroll_layout.addWidget(inputs_group)
+        self.blade_inputs_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        params_layout.addWidget(self.blade_inputs_widget)
 
-        # Slip calculation results
-        slip_group = QGroupBox("Slip Calculation")
-        slip_group.setStyleSheet("""
-            QGroupBox {
-                color: #cdd6f4;
-                font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
-                color: #89b4fa;
-            }
-        """)
+        scroll_layout.addWidget(params_group)
+
+        # === 3. Slip Calculation Group (collapsible) ===
+        slip_group = CollapsibleGroupBox("Slip Calculation (Outlet)")
         slip_layout = QVBoxLayout(slip_group)
-        slip_layout.setContentsMargins(6, 6, 6, 6)
+        slip_layout.setContentsMargins(8, 8, 8, 8)
+        slip_layout.setSpacing(6)
 
         self.slip_widget = SlipCalculationWidget()
         slip_layout.addWidget(self.slip_widget)
+
         scroll_layout.addWidget(slip_group)
 
         scroll_layout.addStretch()
 
         scroll.setWidget(scroll_content)
+        panel_layout.addWidget(scroll)
+
+        return panel
+
+    def _create_center_panel(self) -> QWidget:
+        """Create center panel with velocity triangles (main visual area)."""
+        panel = QFrame()
+        panel.setFrameStyle(QFrame.Shape.StyledPanel)
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #181825;
+                border: 1px solid #45475a;
+            }
+        """)
 
         panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(0, 0, 0, 0)
-        panel_layout.addWidget(scroll)
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(4)
+
+        # Panel title with minimal toolbar
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(6)
+
+        title = QLabel("◈ Velocity Triangles")
+        title.setStyleSheet("""
+            QLabel {
+                color: #89b4fa;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 6px 4px;
+            }
+        """)
+        header_layout.addWidget(title)
+
+        header_layout.addStretch()
+
+        # Mini info label (optional, shows current settings)
+        self.triangle_info_label = QLabel("2×2 Subplots | Hub & Tip")
+        self.triangle_info_label.setStyleSheet("""
+            QLabel {
+                color: #a6adc8;
+                font-size: 9px;
+                padding: 4px;
+            }
+        """)
+        header_layout.addWidget(self.triangle_info_label)
+
+        panel_layout.addLayout(header_layout)
+
+        # Velocity triangle widget (existing, with built-in controls)
+        self.triangle_widget = VelocityTriangleWidget()
+        self.triangle_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        panel_layout.addWidget(self.triangle_widget)
 
         return panel
 
@@ -206,7 +286,9 @@ class BladePropertiesTab(QWidget):
         """Create right panel with analysis plots and triangle details."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMaximumWidth(400)
+        panel.setMinimumWidth(320)
+        panel.setMaximumWidth(500)
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -214,65 +296,63 @@ class BladePropertiesTab(QWidget):
             }
         """)
 
-        # Vertical splitter for plots and details
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(4)
 
-        # Analysis plots
-        plots_group = QGroupBox("Analysis Plots")
-        plots_group.setStyleSheet("""
-            QGroupBox {
-                color: #cdd6f4;
-                font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
+        # Panel title
+        title = QLabel("📊 Analysis & Details")
+        title.setStyleSheet("""
+            QLabel {
                 color: #89b4fa;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 6px 4px;
+                background-color: #1e1e2e;
+                border-radius: 3px;
             }
         """)
-        plots_layout = QVBoxLayout(plots_group)
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        panel_layout.addWidget(title)
+
+        # Vertical splitter for plots (top) and details (bottom)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setHandleWidth(3)
+
+        # === Analysis Plots (top) ===
+        plots_widget = QWidget()
+        plots_layout = QVBoxLayout(plots_widget)
         plots_layout.setContentsMargins(4, 4, 4, 4)
+        plots_layout.setSpacing(4)
+
+        plots_label = QLabel("Analysis Plots")
+        plots_label.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 10px; padding: 4px;")
+        plots_layout.addWidget(plots_label)
 
         self.analysis_plots = BladeAnalysisPlotWidget()
         plots_layout.addWidget(self.analysis_plots)
-        splitter.addWidget(plots_group)
 
-        # Triangle details
-        details_group = QGroupBox("Triangle Details")
-        details_group.setStyleSheet("""
-            QGroupBox {
-                color: #cdd6f4;
-                font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
-                color: #89b4fa;
-            }
-        """)
-        details_layout = QVBoxLayout(details_group)
+        splitter.addWidget(plots_widget)
+
+        # === Triangle Details (bottom) ===
+        details_widget = QWidget()
+        details_layout = QVBoxLayout(details_widget)
         details_layout.setContentsMargins(4, 4, 4, 4)
+        details_layout.setSpacing(4)
+
+        details_label = QLabel("Triangle Details")
+        details_label.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 10px; padding: 4px;")
+        details_layout.addWidget(details_label)
 
         self.triangle_details = TriangleDetailsWidget()
         details_layout.addWidget(self.triangle_details)
-        splitter.addWidget(details_group)
 
-        # Set splitter proportions
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
+        splitter.addWidget(details_widget)
 
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(6, 6, 6, 6)
+        # Set splitter proportions: 60% plots, 40% details
+        splitter.setStretchFactor(0, 60)
+        splitter.setStretchFactor(1, 40)
+
         panel_layout.addWidget(splitter)
 
         return panel
