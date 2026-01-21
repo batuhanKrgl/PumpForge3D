@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt, Signal
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
-    SlipCalculationWidget, TriangleDetailsWidget
+    TriangleDetailsWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
@@ -33,53 +33,57 @@ from pumpforge3d_core.analysis.velocity_triangle import (
 )
 
 
-class CollapsibleGroupBox(QGroupBox):
-    """QGroupBox with collapsible functionality via checkable title."""
+class CollapsibleSection(QWidget):
+    """A collapsible section with header and content."""
 
     def __init__(self, title: str, parent=None):
-        super().__init__(title, parent)
-        self.setCheckable(True)
-        self.setChecked(True)  # Expanded by default
-        self.toggled.connect(self._on_toggled)
+        super().__init__(parent)
+        self.title = title
+        self._is_collapsed = False
+        self._setup_ui()
 
-        # Style for collapsible group
-        self.setStyleSheet("""
-            QGroupBox {
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(4)
+
+        # Header button
+        self.header = QPushButton(f"▼ {self.title}")
+        self.header.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                padding: 8px;
+                background: #313244;
+                border: none;
+                border-radius: 4px;
                 color: #cdd6f4;
                 font-weight: bold;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 16px;
+                font-size: 11px;
             }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 2px 6px;
-                color: #89b4fa;
-            }
-            QGroupBox::indicator {
-                width: 12px;
-                height: 12px;
-                margin-right: 4px;
-            }
-            QGroupBox::indicator:checked {
-                image: none;
-                background-color: #89b4fa;
-                border-radius: 2px;
-            }
-            QGroupBox::indicator:unchecked {
-                image: none;
-                background-color: #45475a;
-                border-radius: 2px;
+            QPushButton:hover {
+                background: #45475a;
             }
         """)
+        self.header.clicked.connect(self._toggle)
+        layout.addWidget(self.header)
 
-    def _on_toggled(self, checked):
-        """Show/hide content when toggled."""
-        # Hide all child widgets when uncollapsed
-        for child in self.findChildren(QWidget, Qt.FindChildOption.FindDirectChildrenOnly):
-            child.setVisible(checked)
+        # Content widget
+        self.content = QWidget()
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(8, 8, 8, 8)
+        layout.addWidget(self.content)
+
+    def _toggle(self):
+        self._is_collapsed = not self._is_collapsed
+        self.content.setVisible(not self._is_collapsed)
+        arrow = "▶" if self._is_collapsed else "▼"
+        self.header.setText(f"{arrow} {self.title}")
+
+    def addWidget(self, widget: QWidget):
+        self.content_layout.addWidget(widget)
+
+    def addLayout(self, layout):
+        self.content_layout.addLayout(layout)
 
 
 class BladePropertiesTab(QWidget):
@@ -193,39 +197,20 @@ class BladePropertiesTab(QWidget):
         scroll_layout.setSpacing(8)
 
         # === 1. Blade Thickness Group (collapsible) ===
-        thickness_group = CollapsibleGroupBox("Blade Thickness")
-        thickness_layout = QVBoxLayout(thickness_group)
-        thickness_layout.setContentsMargins(8, 8, 8, 8)
-        thickness_layout.setSpacing(6)
+        thickness_group = CollapsibleSection("Blade Thickness")
 
         self.thickness_widget = BladeThicknessMatrixWidget()
-        self.thickness_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        thickness_layout.addWidget(self.thickness_widget)
+        thickness_group.addWidget(self.thickness_widget)
 
         scroll_layout.addWidget(thickness_group)
 
         # === 2. Blade Parameters Group (collapsible) ===
-        params_group = CollapsibleGroupBox("Blade Parameters")
-        params_layout = QVBoxLayout(params_group)
-        params_layout.setContentsMargins(8, 8, 8, 8)
-        params_layout.setSpacing(6)
+        params_group = CollapsibleSection("Blade Parameters")
 
         self.blade_inputs_widget = BladeInputsWidget()
-        self.blade_inputs_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        params_layout.addWidget(self.blade_inputs_widget)
+        params_group.addWidget(self.blade_inputs_widget)
 
         scroll_layout.addWidget(params_group)
-
-        # === 3. Slip Calculation Group (collapsible) ===
-        slip_group = CollapsibleGroupBox("Slip Calculation (Outlet)")
-        slip_layout = QVBoxLayout(slip_group)
-        slip_layout.setContentsMargins(8, 8, 8, 8)
-        slip_layout.setSpacing(6)
-
-        self.slip_widget = SlipCalculationWidget()
-        slip_layout.addWidget(self.slip_widget)
-
-        scroll_layout.addWidget(slip_group)
 
         scroll_layout.addStretch()
 
@@ -458,7 +443,7 @@ class BladePropertiesTab(QWidget):
 
         beta_blade_avg = (beta_blade_out_hub + beta_blade_out_tip) / 2.0
 
-        # Calculate slip
+        # Calculate slip (used internally for triangle calculations)
         slip_result = calculate_slip(
             beta_blade_deg=beta_blade_avg,
             blade_count=self._blade_properties.blade_count,
@@ -469,13 +454,8 @@ class BladePropertiesTab(QWidget):
             d_inlet_shroud_mm=self._blade_properties.d_inlet_shroud_mm,
             d_outlet_mm=self._blade_properties.d_outlet_mm
         )
-
-        # Update slip widget
-        # Placeholder values for u2 and cu2_inf
-        u2 = 30.0  # m/s - should calculate from rpm and radius
-        cu2_inf = 25.0  # m/s - theoretical value
-
-        self.slip_widget.update_slip_result(slip_result, u2, cu2_inf)
+        # Slip calculation results are used in triangle details and analysis plots
+        # No separate display widget needed - inputs are in Blade Parameters section
 
     def _update_triangle_details(self):
         """Update detailed triangle information display."""

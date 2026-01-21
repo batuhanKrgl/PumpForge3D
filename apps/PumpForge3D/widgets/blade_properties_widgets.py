@@ -123,23 +123,19 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # Fixed column and row sizes
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        # Stretch columns to fill width, fixed row heights
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 70)
-        self.table.setColumnWidth(1, 70)
         self.table.setRowHeight(0, 28)
         self.table.setRowHeight(1, 28)
 
-        # Calculate proper size to fit content without scrollbars
-        # Header widths + column widths + borders + margins
-        v_header_width = self.table.verticalHeader().width()
+        # Calculate proper height (width will stretch)
         h_header_height = self.table.horizontalHeader().height()
-        total_width = v_header_width + 70 + 70 + 4  # 4 for borders/margins
         total_height = h_header_height + 28 + 28 + 4  # 4 for borders/margins
 
-        self.table.setFixedSize(total_width, total_height)
-        self.table.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.table.setMinimumHeight(total_height)
+        self.table.setMaximumHeight(total_height)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # Style
         self.table.setStyleSheet("""
@@ -267,10 +263,9 @@ class BladeInputsWidget(QWidget):
         layout.setSpacing(8)
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
 
-        # Helper to create styled labels (9px, right-aligned)
+        # Helper to create labels (right-aligned, inherit styling from parent)
         def create_label(text):
             label = QLabel(text)
-            label.setStyleSheet("color: #cdd6f4; font-size: 9px;")
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return label
 
@@ -586,11 +581,6 @@ class TriangleDetailsWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-
-        # Title
-        title = QLabel("Triangle Details")
-        title.setStyleSheet("font-weight: bold; color: #cdd6f4; font-size: 11px;")
-        layout.addWidget(title)
 
         # Tree widget for collapsible groups
         self.tree = QTreeWidget()
