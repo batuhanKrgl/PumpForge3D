@@ -212,38 +212,47 @@ class VelocityTriangleWidget(QWidget):
         axes = self.main_fig.subplots(2, 2)
 
         triangles_data = [
-            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),
-            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),
-            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),
-            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)
+            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),      # row 0, col 0
+            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),      # row 0, col 1
+            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),   # row 1, col 0
+            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)    # row 1, col 1
         ]
 
-        # Calculate unified axis limits across all 4 triangles for same visual size
+        # Calculate axis limits per row (xlim) and per column (ylim)
         margin = 1.5
-        all_xmax = []
-        all_xmin = []
-        all_ymax = []
 
-        for title, tri, beta_blade in triangles_data:
-            all_xmax.append(tri.u + margin)
-            all_xmin.append(min(0, tri.wu) - margin)
-            all_ymax.append(tri.cm * self._k_blockage * 1.15 + margin)
+        # Calculate xlim for each row
+        row0_xmax = max(inlet_hub.u + margin, inlet_tip.u + margin)
+        row0_xmin = min(min(0, inlet_hub.wu) - margin, min(0, inlet_tip.wu) - margin)
+        row1_xmax = max(outlet_hub.u + margin, outlet_tip.u + margin)
+        row1_xmin = min(min(0, outlet_hub.wu) - margin, min(0, outlet_tip.wu) - margin)
 
-        # Use max of all values for unified limits
-        unified_xmax = max(all_xmax)
-        unified_xmin = min(all_xmin)
-        unified_ymax = max(all_ymax)
+        # Calculate ylim for each column
+        col0_ymax = max(inlet_hub.cm * self._k_blockage * 1.15 + margin,
+                        outlet_hub.cm * self._k_blockage * 1.15 + margin)
+        col1_ymax = max(inlet_tip.cm * self._k_blockage * 1.15 + margin,
+                        outlet_tip.cm * self._k_blockage * 1.15 + margin)
         unified_ymin = -margin - 2
 
-        # Draw each triangle with unified axis limits
+        # Map row/col to their limits
+        row_xlims = {
+            0: (row0_xmin, row0_xmax),  # Inlet row
+            1: (row1_xmin, row1_xmax)   # Outlet row
+        }
+        col_ylims = {
+            0: (unified_ymin, col0_ymax),  # Hub column
+            1: (unified_ymin, col1_ymax)   # Tip column
+        }
+
+        # Draw each triangle with row-wise xlim and column-wise ylim
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
 
-            # Apply unified axis limits to all subplots
-            ax.set_xlim(unified_xmin, unified_xmax)
-            ax.set_ylim(unified_ymin, unified_ymax)
+            # Apply row-specific xlim and column-specific ylim
+            ax.set_xlim(*row_xlims[row])
+            ax.set_ylim(*col_ylims[col])
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)

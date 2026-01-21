@@ -23,6 +23,13 @@ from pumpforge3d_core.analysis.blade_properties import (
 )
 
 
+def create_subscript_label(base: str, subscript: str) -> QLabel:
+    """Create a label with subscript formatting like i<sub>1</sub>."""
+    label = QLabel(f"{base}<sub>{subscript}</sub>")
+    label.setTextFormat(Qt.TextFormat.RichText)
+    return label
+
+
 class StyledSpinBox(QWidget):
     """
     Custom spinbox without native arrows, with +/- buttons.
@@ -257,12 +264,7 @@ class BladeInputsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
-
-        # Helper to create labels (right-aligned, inherit styling from parent)
-        def create_label(text):
-            label = QLabel(text)
-            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            return label
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # Blade count z (integer)
         blade_count_spin = StyledSpinBox()
@@ -271,9 +273,9 @@ class BladeInputsWidget(QWidget):
         blade_count_spin.setSingleStep(1)
         blade_count_spin.setValue(self._blade_count)
         self.blade_count_spin = blade_count_spin
-        layout.addRow(create_label("Blade count z:"), blade_count_spin)
+        layout.addRow("z:", blade_count_spin)
 
-        # Incidence i (degrees)
+        # Incidence i (degrees) - with subscript
         incidence_spin = StyledSpinBox()
         incidence_spin.setRange(-20.0, 20.0)
         incidence_spin.setDecimals(1)
@@ -281,7 +283,7 @@ class BladeInputsWidget(QWidget):
         incidence_spin.setSuffix("°")
         incidence_spin.setValue(self._incidence)
         self.incidence_spin = incidence_spin
-        layout.addRow(create_label("Incidence i:"), incidence_spin)
+        layout.addRow(create_subscript_label("i", "1"), incidence_spin)
 
         # Slip mode (combobox)
         slip_mode_combo = QComboBox()
@@ -304,7 +306,7 @@ class BladeInputsWidget(QWidget):
             }
         """)
         self.slip_mode_combo = slip_mode_combo
-        layout.addRow(create_label("Slip mode:"), slip_mode_combo)
+        layout.addRow("Slip mode:", slip_mode_combo)
 
         # Mock slip δ (degrees, conditional)
         mock_slip_spin = StyledSpinBox()
@@ -314,7 +316,7 @@ class BladeInputsWidget(QWidget):
         mock_slip_spin.setSuffix("°")
         mock_slip_spin.setValue(self._mock_slip)
         self.mock_slip_spin = mock_slip_spin
-        self.mock_slip_label = create_label("Mock slip δ:")
+        self.mock_slip_label = QLabel("δ:")
         layout.addRow(self.mock_slip_label, mock_slip_spin)
 
         self._update_mock_slip_visibility()
