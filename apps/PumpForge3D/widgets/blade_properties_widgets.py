@@ -129,13 +129,8 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.setRowHeight(0, 28)
         self.table.setRowHeight(1, 28)
 
-        # Calculate proper height (width will stretch)
-        h_header_height = self.table.horizontalHeader().height()
-        total_height = h_header_height + 28 + 28 + 4  # 4 for borders/margins
-
-        self.table.setMinimumHeight(total_height)
-        self.table.setMaximumHeight(total_height)
-        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # No vertical size constraints - let it fit naturally
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         # Style
         self.table.setStyleSheet("""
@@ -565,12 +560,8 @@ class SlipCalculationWidget(QWidget):
 
 class TriangleDetailsWidget(QWidget):
     """
-    Detailed velocity triangle information with collapsible groups for each station.
-
-    Shows:
-    - u, cu, cm, c, w, alpha, beta
-    - blocked values (cm_blocked, beta_blocked, etc.)
-    - blade angles, incidence, slip
+    Detailed velocity triangle information in table format.
+    Two-panel layout showing Leading edge (Hub/Tip) and Trailing edge (Hub/Tip).
     """
 
     def __init__(self, parent=None):
@@ -578,49 +569,61 @@ class TriangleDetailsWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Tree widget for collapsible groups
-        self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['Parameter', 'Value', 'Unit'])
-        self.tree.setColumnWidth(0, 200)
-        self.tree.setColumnWidth(1, 100)
-        self.tree.setColumnWidth(2, 50)
-        self.tree.setStyleSheet("""
-            QTreeWidget {
+        # Left table: Leading edge (@Hub and @Shroud/Tip)
+        self.leading_table = QTableWidget()
+        self.leading_table.setColumnCount(3)
+        self.leading_table.setHorizontalHeaderLabels(['', 'Leading edge\n@Hub', 'Leading edge\n@Shroud'])
+        self._configure_table(self.leading_table)
+        layout.addWidget(self.leading_table)
+
+        # Right table: Trailing edge (@Hub and @Shroud/Tip)
+        self.trailing_table = QTableWidget()
+        self.trailing_table.setColumnCount(3)
+        self.trailing_table.setHorizontalHeaderLabels(['', 'Trailing edge\n@Hub', 'Trailing edge\n@Shroud'])
+        self._configure_table(self.trailing_table)
+        layout.addWidget(self.trailing_table)
+
+    def _configure_table(self, table):
+        """Configure common table properties."""
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+
+        # Stretch columns
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 80)  # Parameter name column
+
+        # No scrollbars
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        table.setStyleSheet("""
+            QTableWidget {
                 background-color: #1e1e2e;
                 color: #cdd6f4;
+                gridline-color: #45475a;
                 border: 1px solid #45475a;
                 font-size: 10px;
             }
-            QTreeWidget::item {
-                padding: 3px;
-            }
-            QTreeWidget::item:selected {
-                background-color: #45475a;
+            QTableWidget::item {
+                padding: 4px;
+                border-right: 1px solid #45475a;
             }
             QHeaderView::section {
                 background-color: #313244;
                 color: #cdd6f4;
-                padding: 4px;
+                padding: 6px 4px;
                 border: 1px solid #45475a;
                 font-weight: bold;
                 font-size: 9px;
             }
         """)
-
-        # Create groups
-        self.inlet_hub_group = QTreeWidgetItem(self.tree, ['Inlet Hub'])
-        self.inlet_tip_group = QTreeWidgetItem(self.tree, ['Inlet Tip'])
-        self.outlet_hub_group = QTreeWidgetItem(self.tree, ['Outlet Hub'])
-        self.outlet_tip_group = QTreeWidgetItem(self.tree, ['Outlet Tip'])
-
-        # Expand all by default
-        self.tree.expandAll()
-
-        layout.addWidget(self.tree)
 
     def update_details(self, triangle_data_dict: dict):
         """
@@ -630,45 +633,66 @@ class TriangleDetailsWidget(QWidget):
             triangle_data_dict: Dict with keys 'inlet_hub', 'inlet_tip', 'outlet_hub', 'outlet_tip'
                                 Each value is a dict with triangle parameters
         """
-        # Clear existing items
-        for group in [self.inlet_hub_group, self.inlet_tip_group,
-                      self.outlet_hub_group, self.outlet_tip_group]:
-            group.takeChildren()
+        inlet_hub = triangle_data_dict.get('inlet_hub', {})
+        inlet_tip = triangle_data_dict.get('inlet_tip', {})
+        outlet_hub = triangle_data_dict.get('outlet_hub', {})
+        outlet_tip = triangle_data_dict.get('outlet_tip', {})
 
-        # Populate each group
-        self._populate_group(self.inlet_hub_group, triangle_data_dict.get('inlet_hub', {}))
-        self._populate_group(self.inlet_tip_group, triangle_data_dict.get('inlet_tip', {}))
-        self._populate_group(self.outlet_hub_group, triangle_data_dict.get('outlet_hub', {}))
-        self._populate_group(self.outlet_tip_group, triangle_data_dict.get('outlet_tip', {}))
-
-    def _populate_group(self, parent_item: QTreeWidgetItem, data: dict):
-        """Populate a group with triangle data."""
-        if not data:
-            QTreeWidgetItem(parent_item, ['No data', '-', '-'])
-            return
-
-        # Define parameter order and formatting
+        # Define parameter rows
         params = [
-            ('u', 'Blade speed u', 'm/s', 2),
-            ('cu', 'Circumferential cu', 'm/s', 2),
-            ('cm', 'Meridional cm', 'm/s', 2),
-            ('c', 'Absolute velocity c', 'm/s', 2),
-            ('w', 'Relative velocity w', 'm/s', 2),
-            ('alpha', 'Absolute angle α', '°', 1),
-            ('beta', 'Relative angle β', '°', 1),
-            ('cm_blocked', 'Blocked cm', 'm/s', 2),
-            ('beta_blocked', 'Blocked β', '°', 1),
-            ('beta_blade', 'Blade angle β_B', '°', 1),
-            ('incidence', 'Incidence i', '°', 1),
-            ('slip', 'Slip δ', '°', 1),
-            ('cu_slipped', 'Slipped cu', 'm/s', 2),
+            ('z', 'z', '', 0),  # Blade count
+            ('r', 'r', 'mm', 2),  # Radius
+            ('d', 'd', 'mm', 2),  # Diameter
+            ('alpha', 'αF', '°', 1),  # Flow angle
+            ('beta', 'βF', '°', 1),  # Relative flow angle
+            ('u', 'u', 'm/s', 2),  # Blade speed
+            ('cm', 'cm', 'm/s', 2),  # Meridional velocity
+            ('cu', 'cu', 'm/s', 2),  # Circumferential velocity
+            ('cr', 'cr', 'm/s', 2),  # Radial velocity
+            ('cz', 'cz', 'm/s', 2),  # Axial velocity
+            ('c', 'c', 'm/s', 2),  # Absolute velocity
+            ('wu', 'wu', 'm/s', 2),  # Relative tangential velocity
+            ('w', 'w', 'm/s', 2),  # Relative velocity
+            ('cu_r', 'cu·r', 'm²/s', 3),  # Angular momentum
+            ('i_1delta', 'i 1δ', '°', 1),  # Incidence
+            ('beta_blade', 'β blade', '°', 1),  # Blade angle
         ]
 
-        for key, label, unit, decimals in params:
-            if key in data:
-                value = data[key]
-                if isinstance(value, (int, float)):
-                    value_str = f"{value:.{decimals}f}"
-                else:
-                    value_str = str(value)
-                QTreeWidgetItem(parent_item, [label, value_str, unit])
+        # Populate leading edge table (inlet)
+        self._populate_table(self.leading_table, params, inlet_hub, inlet_tip)
+
+        # Populate trailing edge table (outlet)
+        self._populate_table(self.trailing_table, params, outlet_hub, outlet_tip)
+
+    def _populate_table(self, table, params, hub_data, tip_data):
+        """Populate a table with hub and tip data."""
+        table.setRowCount(len(params))
+
+        for row, (key, label, unit, decimals) in enumerate(params):
+            # Parameter name
+            param_item = QTableWidgetItem(label)
+            param_item.setFont(QFont("", -1, QFont.Weight.Bold))
+            table.setItem(row, 0, param_item)
+
+            # Hub value
+            hub_value = hub_data.get(key, '')
+            if isinstance(hub_value, (int, float)):
+                hub_str = f"{hub_value:.{decimals}f}"
+            else:
+                hub_str = str(hub_value) if hub_value else '-'
+            hub_item = QTableWidgetItem(hub_str)
+            hub_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 1, hub_item)
+
+            # Tip value
+            tip_value = tip_data.get(key, '')
+            if isinstance(tip_value, (int, float)):
+                tip_str = f"{tip_value:.{decimals}f}"
+            else:
+                tip_str = str(tip_value) if tip_value else '-'
+            tip_item = QTableWidgetItem(tip_str)
+            tip_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row, 2, tip_item)
+
+            # Set row height
+            table.setRowHeight(row, 24)

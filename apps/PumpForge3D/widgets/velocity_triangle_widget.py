@@ -218,20 +218,32 @@ class VelocityTriangleWidget(QWidget):
             ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)
         ]
 
-        # Draw each triangle with independent axis limits
+        # Calculate unified axis limits across all 4 triangles for same visual size
+        margin = 1.5
+        all_xmax = []
+        all_xmin = []
+        all_ymax = []
+
+        for title, tri, beta_blade in triangles_data:
+            all_xmax.append(tri.u + margin)
+            all_xmin.append(min(0, tri.wu) - margin)
+            all_ymax.append(tri.cm * self._k_blockage * 1.15 + margin)
+
+        # Use max of all values for unified limits
+        unified_xmax = max(all_xmax)
+        unified_xmin = min(all_xmin)
+        unified_ymax = max(all_ymax)
+        unified_ymin = -margin - 2
+
+        # Draw each triangle with unified axis limits
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
 
-            # Calculate independent axis limits for this triangle
-            margin = 1.5
-            xmax = tri.u + margin
-            xmin = min(0, tri.wu) - margin
-            ymax = tri.cm * self._k_blockage * 1.15 + margin
-
-            ax.set_xlim(xmin, xmax)
-            ax.set_ylim(-margin - 2, ymax)
+            # Apply unified axis limits to all subplots
+            ax.set_xlim(unified_xmin, unified_xmax)
+            ax.set_ylim(unified_ymin, unified_ymax)
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
