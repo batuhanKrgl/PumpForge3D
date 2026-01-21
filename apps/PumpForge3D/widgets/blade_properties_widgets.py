@@ -119,8 +119,27 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.setHorizontalHeaderLabels(['Inlet', 'Outlet'])
         self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
 
-        # Fixed size
-        self.table.setFixedSize(180, 85)
+        # Disable scrollbars
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Fixed column and row sizes
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 70)
+        self.table.setColumnWidth(1, 70)
+        self.table.setRowHeight(0, 28)
+        self.table.setRowHeight(1, 28)
+
+        # Calculate proper size to fit content without scrollbars
+        # Header widths + column widths + borders + margins
+        v_header_width = self.table.verticalHeader().width()
+        h_header_height = self.table.horizontalHeader().height()
+        total_width = v_header_width + 70 + 70 + 4  # 4 for borders/margins
+        total_height = h_header_height + 28 + 28 + 4  # 4 for borders/margins
+
+        self.table.setFixedSize(total_width, total_height)
+        self.table.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         # Style
         self.table.setStyleSheet("""
@@ -144,14 +163,6 @@ class BladeThicknessMatrixWidget(QWidget):
                 font-size: 9px;
             }
         """)
-
-        # Fixed column and row sizes
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 70)
-        self.table.setColumnWidth(1, 70)
-        self.table.setRowHeight(0, 28)
-        self.table.setRowHeight(1, 28)
 
         # Populate with editable text items
         for row in range(2):
