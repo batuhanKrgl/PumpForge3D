@@ -13,7 +13,8 @@ Based on CFturbo manual section 7.3.1.4 (Velocity Triangles) and 7.3.1.4.2.1 (Sl
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
-    QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy
+    QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy,
+    QPushButton
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -253,7 +254,6 @@ class BladePropertiesTab(QWidget):
         header_layout.addStretch()
 
         # Parameter window button
-        from PySide6.QtWidgets import QPushButton
         params_btn = QPushButton("⚙ Parameters")
         params_btn.setStyleSheet("""
             QPushButton {
