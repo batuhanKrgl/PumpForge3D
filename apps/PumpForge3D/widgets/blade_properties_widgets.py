@@ -2,6 +2,7 @@
 Blade Properties Widgets - Components for the Blade Properties tab.
 
 Includes:
+- StyledSpinBox: Custom spinbox with +/- buttons (from Design tab pattern)
 - BladeThicknessMatrixWidget: 2×2 table for blade thickness input
 - BladeInputsWidget: Blade count, incidence, and slip mode controls
 - SlipCalculationWidget: Slip calculation results display
@@ -12,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QSpinBox,
     QDoubleSpinBox, QComboBox, QFrame, QTextEdit, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QSizePolicy
+    QPushButton, QSizePolicy, QToolButton, QAbstractSpinBox, QGridLayout
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
@@ -20,6 +21,77 @@ from PySide6.QtGui import QFont
 from pumpforge3d_core.analysis.blade_properties import (
     BladeThicknessMatrix, SlipCalculationResult, calculate_slip
 )
+
+
+class StyledSpinBox(QWidget):
+    """
+    Custom spinbox without native arrows, with +/- buttons.
+    Pattern from Design tab for consistent UX.
+    """
+
+    valueChanged = Signal(float)
+    editingFinished = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        # Minus button
+        self.minus_btn = QToolButton()
+        self.minus_btn.setText("−")
+        self.minus_btn.setFixedSize(20, 24)
+        self.minus_btn.setAutoRepeat(True)
+        self.minus_btn.clicked.connect(self._decrement)
+        layout.addWidget(self.minus_btn)
+
+        # Spinbox without arrows
+        self.spinbox = QDoubleSpinBox()
+        self.spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.spinbox.setFixedWidth(80)
+        self.spinbox.valueChanged.connect(self.valueChanged.emit)
+        self.spinbox.editingFinished.connect(self.editingFinished.emit)
+        layout.addWidget(self.spinbox)
+
+        # Plus button
+        self.plus_btn = QToolButton()
+        self.plus_btn.setText("+")
+        self.plus_btn.setFixedSize(20, 24)
+        self.plus_btn.setAutoRepeat(True)
+        self.plus_btn.clicked.connect(self._increment)
+        layout.addWidget(self.plus_btn)
+
+    def _increment(self):
+        self.spinbox.stepUp()
+
+    def _decrement(self):
+        self.spinbox.stepDown()
+
+    # Delegate methods to inner spinbox
+    def value(self) -> float:
+        return self.spinbox.value()
+
+    def setValue(self, val: float):
+        self.spinbox.setValue(val)
+
+    def setRange(self, min_val: float, max_val: float):
+        self.spinbox.setRange(min_val, max_val)
+
+    def setDecimals(self, decimals: int):
+        self.spinbox.setDecimals(decimals)
+
+    def setSuffix(self, suffix: str):
+        self.spinbox.setSuffix(suffix)
+
+    def setSingleStep(self, step: float):
+        self.spinbox.setSingleStep(step)
+
+    def blockSignals(self, block: bool) -> bool:
+        return self.spinbox.blockSignals(block)
 
 
 class BladeThicknessMatrixWidget(QWidget):
@@ -42,14 +114,13 @@ class BladeThicknessMatrixWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Table
+        # Table with editable cells (no spinboxes)
         self.table = QTableWidget(2, 2)
         self.table.setHorizontalHeaderLabels(['Inlet', 'Outlet'])
         self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
-        self.table.setMinimumHeight(85)
-        self.table.setMaximumHeight(95)
-        self.table.setMinimumWidth(180)
-        self.table.setMaximumWidth(220)
+
+        # Fixed size
+        self.table.setFixedSize(180, 85)
 
         # Style
         self.table.setStyleSheet("""
@@ -61,68 +132,86 @@ class BladeThicknessMatrixWidget(QWidget):
                 font-size: 10px;
             }
             QTableWidget::item {
-                padding: 2px;
+                padding: 4px;
+                text-align: center;
             }
             QHeaderView::section {
                 background-color: #313244;
                 color: #cdd6f4;
-                padding: 3px;
+                padding: 4px;
                 border: 1px solid #45475a;
                 font-weight: bold;
                 font-size: 9px;
             }
         """)
 
-        # Fixed column widths
+        # Fixed column and row sizes
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 75)
-        self.table.setColumnWidth(1, 75)
+        self.table.setColumnWidth(0, 70)
+        self.table.setColumnWidth(1, 70)
         self.table.setRowHeight(0, 28)
         self.table.setRowHeight(1, 28)
 
-        # Populate with spinboxes
-        self._hub_inlet_spin = self._create_spinbox(self._thickness.hub_inlet)
-        self._hub_outlet_spin = self._create_spinbox(self._thickness.hub_outlet)
-        self._tip_inlet_spin = self._create_spinbox(self._thickness.tip_inlet)
-        self._tip_outlet_spin = self._create_spinbox(self._thickness.tip_outlet)
+        # Populate with editable text items
+        for row in range(2):
+            for col in range(2):
+                item = QTableWidgetItem()
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, col, item)
 
-        self.table.setCellWidget(0, 0, self._hub_inlet_spin)
-        self.table.setCellWidget(0, 1, self._hub_outlet_spin)
-        self.table.setCellWidget(1, 0, self._tip_inlet_spin)
-        self.table.setCellWidget(1, 1, self._tip_outlet_spin)
+        # Set initial values
+        self.table.item(0, 0).setText(f"{self._thickness.hub_inlet:.2f}")
+        self.table.item(0, 1).setText(f"{self._thickness.hub_outlet:.2f}")
+        self.table.item(1, 0).setText(f"{self._thickness.tip_inlet:.2f}")
+        self.table.item(1, 1).setText(f"{self._thickness.tip_outlet:.2f}")
 
         layout.addWidget(self.table)
 
-    def _create_spinbox(self, value):
-        """Create a compact spinbox for thickness values."""
-        spin = QDoubleSpinBox()
-        spin.setRange(0.1, 100.0)
-        spin.setDecimals(2)
-        spin.setValue(value)
-        spin.setStyleSheet("""
-            QDoubleSpinBox {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                padding: 2px;
-            }
-        """)
-        return spin
-
     def _connect_signals(self):
-        """Connect spinbox signals to update thickness matrix."""
-        for spin in [self._hub_inlet_spin, self._hub_outlet_spin,
-                     self._tip_inlet_spin, self._tip_outlet_spin]:
-            spin.valueChanged.connect(self._on_thickness_changed)
+        """Connect table itemChanged signal."""
+        self.table.itemChanged.connect(self._on_item_changed)
 
-    def _on_thickness_changed(self):
-        """Update thickness matrix and emit signal."""
-        self._thickness.hub_inlet = self._hub_inlet_spin.value()
-        self._thickness.hub_outlet = self._hub_outlet_spin.value()
-        self._thickness.tip_inlet = self._tip_inlet_spin.value()
-        self._thickness.tip_outlet = self._tip_outlet_spin.value()
-        self.thicknessChanged.emit(self._thickness)
+    def _on_item_changed(self, item):
+        """Handle cell edit and emit signal."""
+        try:
+            value = float(item.text())
+            # Clamp to reasonable range
+            value = max(0.1, min(value, 100.0))
+
+            # Update internal thickness matrix
+            row = item.row()
+            col = item.column()
+
+            if row == 0 and col == 0:
+                self._thickness.hub_inlet = value
+            elif row == 0 and col == 1:
+                self._thickness.hub_outlet = value
+            elif row == 1 and col == 0:
+                self._thickness.tip_inlet = value
+            elif row == 1 and col == 1:
+                self._thickness.tip_outlet = value
+
+            # Update display with formatted value
+            self.table.blockSignals(True)
+            item.setText(f"{value:.2f}")
+            self.table.blockSignals(False)
+
+            # Emit change signal
+            self.thicknessChanged.emit(self._thickness)
+
+        except ValueError:
+            # Invalid input, revert to previous value
+            self.table.blockSignals(True)
+            if item.row() == 0 and item.column() == 0:
+                item.setText(f"{self._thickness.hub_inlet:.2f}")
+            elif item.row() == 0 and item.column() == 1:
+                item.setText(f"{self._thickness.hub_outlet:.2f}")
+            elif item.row() == 1 and item.column() == 0:
+                item.setText(f"{self._thickness.tip_inlet:.2f}")
+            elif item.row() == 1 and item.column() == 1:
+                item.setText(f"{self._thickness.tip_outlet:.2f}")
+            self.table.blockSignals(False)
 
     def get_thickness(self) -> BladeThicknessMatrix:
         """Get current thickness matrix."""
@@ -131,26 +220,20 @@ class BladeThicknessMatrixWidget(QWidget):
     def set_thickness(self, thickness: BladeThicknessMatrix):
         """Set thickness matrix values."""
         self._thickness = thickness
-        self._hub_inlet_spin.blockSignals(True)
-        self._hub_outlet_spin.blockSignals(True)
-        self._tip_inlet_spin.blockSignals(True)
-        self._tip_outlet_spin.blockSignals(True)
+        self.table.blockSignals(True)
 
-        self._hub_inlet_spin.setValue(thickness.hub_inlet)
-        self._hub_outlet_spin.setValue(thickness.hub_outlet)
-        self._tip_inlet_spin.setValue(thickness.tip_inlet)
-        self._tip_outlet_spin.setValue(thickness.tip_outlet)
+        self.table.item(0, 0).setText(f"{thickness.hub_inlet:.2f}")
+        self.table.item(0, 1).setText(f"{thickness.hub_outlet:.2f}")
+        self.table.item(1, 0).setText(f"{thickness.tip_inlet:.2f}")
+        self.table.item(1, 1).setText(f"{thickness.tip_outlet:.2f}")
 
-        self._hub_inlet_spin.blockSignals(False)
-        self._hub_outlet_spin.blockSignals(False)
-        self._tip_inlet_spin.blockSignals(False)
-        self._tip_outlet_spin.blockSignals(False)
+        self.table.blockSignals(False)
 
 
 class BladeInputsWidget(QWidget):
     """
-    Compact widget for blade count, incidence, and slip mode inputs.
-    Uses grid layout for proper alignment.
+    Blade parameters input widget using StyledSpinBox pattern from Design tab.
+    QFormLayout for clean alignment.
     """
 
     bladeCountChanged = Signal(int)
@@ -168,74 +251,43 @@ class BladeInputsWidget(QWidget):
         self._connect_signals()
 
     def _setup_ui(self):
-        from PySide6.QtWidgets import QGridLayout
-
-        layout = QGridLayout(self)
+        layout = QFormLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.setColumnStretch(0, 0)  # Label column: no stretch
-        layout.setColumnStretch(1, 0)  # Input column: no stretch
+        layout.setSpacing(8)
+        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
 
-        row = 0
+        # Helper to create styled labels (9px, right-aligned)
+        def create_label(text):
+            label = QLabel(text)
+            label.setStyleSheet("color: #cdd6f4; font-size: 9px;")
+            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            return label
 
-        # Blade count
-        blade_count_label = QLabel("Blade count z:")
-        blade_count_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
-        blade_count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # Blade count z (integer)
+        blade_count_spin = StyledSpinBox()
+        blade_count_spin.setRange(1, 20)
+        blade_count_spin.setDecimals(0)
+        blade_count_spin.setSingleStep(1)
+        blade_count_spin.setValue(self._blade_count)
+        self.blade_count_spin = blade_count_spin
+        layout.addRow(create_label("Blade count z:"), blade_count_spin)
 
-        self.blade_count_spin = QSpinBox()
-        self.blade_count_spin.setRange(1, 20)
-        self.blade_count_spin.setValue(self._blade_count)
-        self.blade_count_spin.setFixedWidth(70)
-        self.blade_count_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                padding: 3px;
-                font-size: 10px;
-            }
-        """)
+        # Incidence i (degrees)
+        incidence_spin = StyledSpinBox()
+        incidence_spin.setRange(-20.0, 20.0)
+        incidence_spin.setDecimals(1)
+        incidence_spin.setSingleStep(0.5)
+        incidence_spin.setSuffix("°")
+        incidence_spin.setValue(self._incidence)
+        self.incidence_spin = incidence_spin
+        layout.addRow(create_label("Incidence i:"), incidence_spin)
 
-        layout.addWidget(blade_count_label, row, 0)
-        layout.addWidget(self.blade_count_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
-        row += 1
-
-        # Incidence
-        incidence_label = QLabel("Incidence i:")
-        incidence_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
-        incidence_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        self.incidence_spin = QDoubleSpinBox()
-        self.incidence_spin.setRange(-20.0, 20.0)
-        self.incidence_spin.setDecimals(1)
-        self.incidence_spin.setValue(self._incidence)
-        self.incidence_spin.setSuffix("°")
-        self.incidence_spin.setFixedWidth(70)
-        self.incidence_spin.setStyleSheet("""
-            QDoubleSpinBox {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                padding: 3px;
-                font-size: 10px;
-            }
-        """)
-
-        layout.addWidget(incidence_label, row, 0)
-        layout.addWidget(self.incidence_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
-        row += 1
-
-        # Slip mode
-        slip_mode_label = QLabel("Slip mode:")
-        slip_mode_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
-        slip_mode_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        self.slip_mode_combo = QComboBox()
-        self.slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
-        self.slip_mode_combo.setCurrentText(self._slip_mode)
-        self.slip_mode_combo.setFixedWidth(100)
-        self.slip_mode_combo.setStyleSheet("""
+        # Slip mode (combobox)
+        slip_mode_combo = QComboBox()
+        slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
+        slip_mode_combo.setCurrentText(self._slip_mode)
+        slip_mode_combo.setFixedWidth(122)  # Match StyledSpinBox total width
+        slip_mode_combo.setStyleSheet("""
             QComboBox {
                 background-color: #313244;
                 color: #cdd6f4;
@@ -243,43 +295,26 @@ class BladeInputsWidget(QWidget):
                 padding: 3px;
                 font-size: 10px;
             }
-            QComboBox::drop-down {
-                border: none;
-            }
+            QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
                 background-color: #313244;
                 color: #cdd6f4;
                 selection-background-color: #45475a;
             }
         """)
+        self.slip_mode_combo = slip_mode_combo
+        layout.addRow(create_label("Slip mode:"), slip_mode_combo)
 
-        layout.addWidget(slip_mode_label, row, 0)
-        layout.addWidget(self.slip_mode_combo, row, 1, Qt.AlignmentFlag.AlignLeft)
-        row += 1
-
-        # Mock slip (only shown when slip_mode = "Mock")
-        self.mock_slip_label = QLabel("Mock slip δ:")
-        self.mock_slip_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
-        self.mock_slip_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        self.mock_slip_spin = QDoubleSpinBox()
-        self.mock_slip_spin.setRange(-30.0, 30.0)
-        self.mock_slip_spin.setDecimals(1)
-        self.mock_slip_spin.setValue(self._mock_slip)
-        self.mock_slip_spin.setSuffix("°")
-        self.mock_slip_spin.setFixedWidth(70)
-        self.mock_slip_spin.setStyleSheet("""
-            QDoubleSpinBox {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                padding: 3px;
-                font-size: 10px;
-            }
-        """)
-
-        layout.addWidget(self.mock_slip_label, row, 0)
-        layout.addWidget(self.mock_slip_spin, row, 1, Qt.AlignmentFlag.AlignLeft)
+        # Mock slip δ (degrees, conditional)
+        mock_slip_spin = StyledSpinBox()
+        mock_slip_spin.setRange(-30.0, 30.0)
+        mock_slip_spin.setDecimals(1)
+        mock_slip_spin.setSingleStep(0.5)
+        mock_slip_spin.setSuffix("°")
+        mock_slip_spin.setValue(self._mock_slip)
+        self.mock_slip_spin = mock_slip_spin
+        self.mock_slip_label = create_label("Mock slip δ:")
+        layout.addRow(self.mock_slip_label, mock_slip_spin)
 
         self._update_mock_slip_visibility()
 
@@ -290,8 +325,8 @@ class BladeInputsWidget(QWidget):
         self.mock_slip_spin.valueChanged.connect(self._on_mock_slip_changed)
 
     def _on_blade_count_changed(self, value):
-        self._blade_count = value
-        self.bladeCountChanged.emit(value)
+        self._blade_count = int(value)
+        self.bladeCountChanged.emit(self._blade_count)
 
     def _on_incidence_changed(self, value):
         self._incidence = value
@@ -345,7 +380,7 @@ class SlipCalculationWidget(QWidget):
         method_layout.setSpacing(6)
 
         method_label = QLabel("Method:")
-        method_label.setStyleSheet("color: #cdd6f4; font-size: 10px;")
+        method_label.setStyleSheet("color: #cdd6f4; font-size: 9px;")
         method_layout.addWidget(method_label)
 
         self.method_combo = QComboBox()
@@ -359,9 +394,7 @@ class SlipCalculationWidget(QWidget):
                 padding: 3px;
                 font-size: 10px;
             }
-            QComboBox::drop-down {
-                border: none;
-            }
+            QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
                 background-color: #313244;
                 color: #cdd6f4;
@@ -419,12 +452,8 @@ class SlipCalculationWidget(QWidget):
                 text-align: left;
                 font-size: 10px;
             }
-            QPushButton:hover {
-                background-color: #45475a;
-            }
-            QPushButton:checked {
-                background-color: #45475a;
-            }
+            QPushButton:hover { background-color: #45475a; }
+            QPushButton:checked { background-color: #45475a; }
         """)
         self.formula_button.clicked.connect(self._toggle_formula)
         layout.addWidget(self.formula_button)
@@ -549,7 +578,7 @@ class TriangleDetailsWidget(QWidget):
 
         # Title
         title = QLabel("Triangle Details")
-        title.setStyleSheet("font-weight: bold; color: #cdd6f4;")
+        title.setStyleSheet("font-weight: bold; color: #cdd6f4; font-size: 11px;")
         layout.addWidget(title)
 
         # Tree widget for collapsible groups
@@ -577,7 +606,7 @@ class TriangleDetailsWidget(QWidget):
                 padding: 4px;
                 border: 1px solid #45475a;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 9px;
             }
         """)
 

@@ -23,6 +23,7 @@ from ..widgets.blade_properties_widgets import (
     SlipCalculationWidget, TriangleDetailsWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
+from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
 
 from pumpforge3d_core.analysis.blade_properties import (
     BladeProperties, calculate_slip, calculate_cu_slipped
@@ -105,6 +106,10 @@ class BladePropertiesTab(QWidget):
             slip_mode="Mock",
             mock_slip_deg=5.0
         )
+
+        # Create parameter window (non-modal, hidden by default)
+        self.params_window = VelocityTriangleParamsWindow()
+        self.params_window.hide()
 
         self._setup_ui()
         self._connect_signals()
@@ -262,6 +267,29 @@ class BladePropertiesTab(QWidget):
 
         header_layout.addStretch()
 
+        # Parameter window button
+        from PySide6.QtWidgets import QPushButton
+        params_btn = QPushButton("⚙ Parameters")
+        params_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #313244;
+                color: #89b4fa;
+                border: 1px solid #45475a;
+                padding: 4px 8px;
+                border-radius: 3px;
+                font-size: 9px;
+            }
+            QPushButton:hover {
+                background-color: #45475a;
+            }
+            QPushButton:pressed {
+                background-color: #89b4fa;
+                color: #1e1e2e;
+            }
+        """)
+        params_btn.clicked.connect(self._toggle_params_window)
+        header_layout.addWidget(params_btn)
+
         # Mini info label (optional, shows current settings)
         self.triangle_info_label = QLabel("2×2 Subplots | Hub & Tip")
         self.triangle_info_label.setStyleSheet("""
@@ -365,6 +393,7 @@ class BladePropertiesTab(QWidget):
         self.blade_inputs_widget.slipModeChanged.connect(self._on_slip_mode_changed)
         self.blade_inputs_widget.mockSlipChanged.connect(self._on_mock_slip_changed)
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
+        self.params_window.parametersChanged.connect(self._on_params_changed)
 
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
@@ -397,6 +426,22 @@ class BladePropertiesTab(QWidget):
         """Handle velocity triangle input changes."""
         self._update_triangle_details()
         self._update_analysis_plots()
+
+    def _on_params_changed(self, params: dict):
+        """Handle parameter window changes."""
+        # params = {'n': RPM, 'Q': m³/s, 'alpha1': degrees}
+        # Update triangle calculations with new parameters
+        # For now, just trigger a refresh
+        self._update_all()
+
+    def _toggle_params_window(self):
+        """Show/hide the parameter input window."""
+        if self.params_window.isVisible():
+            self.params_window.hide()
+        else:
+            self.params_window.show()
+            self.params_window.raise_()
+            self.params_window.activateWindow()
 
     def _update_all(self):
         """Update all displays."""
