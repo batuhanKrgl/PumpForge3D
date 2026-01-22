@@ -8,6 +8,12 @@ Based on CFturbo manual definitions:
 - cu = u - wu (absolute circumferential, from identity: wu + cu = u)
 - c = √(cu² + cm²) (absolute velocity)
 - w = √(wu² + cm²) (relative velocity)
+
+Blockage and flow area calculations:
+- τ (obstruction) = z × t_avg / (π × d_m)
+- A_effective = A_geometric × (1 - τ)
+- cm = Q / A_effective
+- K_blockage = 1 / (1 - τ)
 """
 
 from dataclasses import dataclass
@@ -351,3 +357,147 @@ def compute_derived_triangle(
         w_slipped=w_slipped,
         beta_slipped=beta_slipped
     )
+
+
+def calculate_flow_area(r_hub: float, r_tip: float) -> float:
+    """
+    Calculate meridional flow area (annular area).
+
+    Args:
+        r_hub: Hub radius (m)
+        r_tip: Tip radius (m)
+
+    Returns:
+        Flow area (m²)
+    """
+    return math.pi * (r_tip**2 - r_hub**2)
+
+
+def calculate_obstruction_factor(
+    blade_count: int,
+    thickness_avg: float,
+    diameter_mean: float
+) -> float:
+    """
+    Calculate blade obstruction factor τ (tau).
+
+    CFturbo formula:
+        τ = z × t_avg / (π × d_m)
+
+    where:
+        z = blade count
+        t_avg = average blade thickness (m)
+        d_m = mean diameter (m)
+
+    Args:
+        blade_count: Number of blades
+        thickness_avg: Average blade thickness (m)
+        diameter_mean: Mean diameter (m)
+
+    Returns:
+        Obstruction factor τ (dimensionless, typically 0.05-0.15)
+    """
+    if diameter_mean <= 0:
+        return 0.0
+
+    tau = blade_count * thickness_avg / (math.pi * diameter_mean)
+    return max(0.0, min(tau, 0.5))  # Clamp to reasonable range
+
+
+def calculate_blockage_factor(
+    blade_count: int,
+    thickness_avg: float,
+    diameter_mean: float
+) -> float:
+    """
+    Calculate blockage multiplier K_blockage.
+
+    Relationship:
+        K_blockage = 1 / (1 - τ)
+
+    where τ is the obstruction factor.
+
+    Args:
+        blade_count: Number of blades
+        thickness_avg: Average blade thickness (m)
+        diameter_mean: Mean diameter (m)
+
+    Returns:
+        Blockage factor K (dimensionless, typically 1.05-1.15)
+    """
+    tau = calculate_obstruction_factor(blade_count, thickness_avg, diameter_mean)
+
+    if tau >= 1.0:
+        return 1.5  # Maximum reasonable value
+
+    k_blockage = 1.0 / (1.0 - tau)
+    return min(k_blockage, 1.5)  # Clamp to reasonable maximum
+
+
+def calculate_meridional_velocity(
+    flow_rate: float,
+    r_hub: float,
+    r_tip: float,
+    blade_count: int = 0,
+    thickness_avg: float = 0.0,
+    diameter_mean: float = 0.0,
+    include_blockage: bool = False
+) -> float:
+    """
+    Calculate meridional velocity from flow rate and geometry.
+
+    Formula:
+        cm = Q / A_effective
+
+    where:
+        A_effective = A_geometric              (without blockage)
+        A_effective = A_geometric × (1 - τ)    (with blockage)
+
+    Args:
+        flow_rate: Volume flow rate Q (m³/s)
+        r_hub: Hub radius (m)
+        r_tip: Tip radius (m)
+        blade_count: Number of blades (for blockage)
+        thickness_avg: Average blade thickness (m, for blockage)
+        diameter_mean: Mean diameter (m, for blockage)
+        include_blockage: Whether to include blade blockage effect
+
+    Returns:
+        Meridional velocity cm (m/s)
+    """
+    # Geometric flow area
+    A_geometric = calculate_flow_area(r_hub, r_tip)
+
+    if A_geometric <= 0:
+        return 0.0
+
+    if include_blockage and blade_count > 0 and thickness_avg > 0:
+        # Calculate effective area with blockage
+        tau = calculate_obstruction_factor(blade_count, thickness_avg, diameter_mean)
+        A_effective = A_geometric * (1.0 - tau)
+    else:
+        # No blockage correction
+        A_effective = A_geometric
+
+    # Avoid division by zero
+    if A_effective <= 0:
+        return 0.0
+
+    cm = flow_rate / A_effective
+    return cm
+
+
+def calculate_mean_diameter(r_hub: float, r_tip: float) -> float:
+    """
+    Calculate mean diameter from hub and tip radii.
+
+    d_m = (d_hub + d_tip) / 2 = r_hub + r_tip
+
+    Args:
+        r_hub: Hub radius (m)
+        r_tip: Tip radius (m)
+
+    Returns:
+        Mean diameter (m)
+    """
+    return 2.0 * (r_hub + r_tip) / 2.0

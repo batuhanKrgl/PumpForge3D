@@ -66,96 +66,9 @@ class VelocityTriangleWidget(QWidget):
         self._update_all()
     
     def _setup_ui(self):
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(4, 4, 4, 4)
-        main_layout.setSpacing(6)
-        
-        # Left: Input panel
-        input_panel = QFrame()
-        input_panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        input_panel.setMaximumWidth(180)
-        input_layout = QVBoxLayout(input_panel)
-        input_layout.setContentsMargins(6, 6, 6, 6)
-        input_layout.setSpacing(6)
-        
-        # Machine
-        machine_group = QGroupBox("Machine")
-        machine_form = QFormLayout(machine_group)
-        machine_form.setSpacing(3)
-        self.rpm_spin = self._spin(100, 50000, self._rpm, " rpm")
-        machine_form.addRow("n:", self.rpm_spin)
-        self.alpha1_spin = self._spin(0, 180, self._alpha1, "°")
-        machine_form.addRow("α₁:", self.alpha1_spin)
-        input_layout.addWidget(machine_group)
-        
-        # Velocities
-        vel_group = QGroupBox("cm (m/s)")
-        vel_form = QFormLayout(vel_group)
-        vel_form.setSpacing(3)
-        self.cm1_spin = self._spin(0.1, 100, self._cm1)
-        vel_form.addRow("cm₁:", self.cm1_spin)
-        self.cm2_spin = self._spin(0.1, 100, self._cm2)
-        vel_form.addRow("cm₂:", self.cm2_spin)
-        input_layout.addWidget(vel_group)
-        
-        # Radii
-        radii_group = QGroupBox("Radii (m)")
-        radii_form = QFormLayout(radii_group)
-        radii_form.setSpacing(3)
-        self._r1_hub_spin = self._spin(0.001, 10, self._r1_hub, decimals=3)
-        radii_form.addRow("r₁h:", self._r1_hub_spin)
-        self._r1_tip_spin = self._spin(0.001, 10, self._r1_tip, decimals=3)
-        radii_form.addRow("r₁t:", self._r1_tip_spin)
-        self._r2_hub_spin = self._spin(0.001, 10, self._r2_hub, decimals=3)
-        radii_form.addRow("r₂h:", self._r2_hub_spin)
-        self._r2_tip_spin = self._spin(0.001, 10, self._r2_tip, decimals=3)
-        radii_form.addRow("r₂t:", self._r2_tip_spin)
-        input_layout.addWidget(radii_group)
-        
-        # Flow angles
-        beta_group = QGroupBox("β flow (°)")
-        beta_form = QFormLayout(beta_group)
-        beta_form.setSpacing(3)
-        self._beta_in_hub_spin = self._spin(5, 85, self._beta_in_hub, "°")
-        beta_form.addRow("β₁h:", self._beta_in_hub_spin)
-        self._beta_in_tip_spin = self._spin(5, 85, self._beta_in_tip, "°")
-        beta_form.addRow("β₁t:", self._beta_in_tip_spin)
-        self._beta_out_hub_spin = self._spin(5, 85, self._beta_out_hub, "°")
-        beta_form.addRow("β₂h:", self._beta_out_hub_spin)
-        self._beta_out_tip_spin = self._spin(5, 85, self._beta_out_tip, "°")
-        beta_form.addRow("β₂t:", self._beta_out_tip_spin)
-        input_layout.addWidget(beta_group)
-        
-        # Blade angles
-        blade_group = QGroupBox("βB blade (°)")
-        blade_form = QFormLayout(blade_group)
-        blade_form.setSpacing(3)
-        self._beta_blade_in_hub_spin = self._spin(5, 85, self._beta_blade_in_hub, "°")
-        blade_form.addRow("βB₁h:", self._beta_blade_in_hub_spin)
-        self._beta_blade_in_tip_spin = self._spin(5, 85, self._beta_blade_in_tip, "°")
-        blade_form.addRow("βB₁t:", self._beta_blade_in_tip_spin)
-        self._beta_blade_out_hub_spin = self._spin(5, 85, self._beta_blade_out_hub, "°")
-        blade_form.addRow("βB₂h:", self._beta_blade_out_hub_spin)
-        self._beta_blade_out_tip_spin = self._spin(5, 85, self._beta_blade_out_tip, "°")
-        blade_form.addRow("βB₂t:", self._beta_blade_out_tip_spin)
-        input_layout.addWidget(blade_group)
-        
-        # Blockage
-        block_group = QGroupBox("Blockage")
-        block_form = QFormLayout(block_group)
-        block_form.setSpacing(3)
-        self.k_blockage_spin = self._spin(1.0, 1.5, self._k_blockage, decimals=2)
-        block_form.addRow("K:", self.k_blockage_spin)
-        input_layout.addWidget(block_group)
-        
-        input_layout.addStretch()
-        main_layout.addWidget(input_panel)
-
-        # Right: Plot area with toolbar and status
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(2)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(2)
 
         # Figure with 2×2 subplots
         self.main_fig = Figure(figsize=(10, 8), dpi=100, facecolor='#181825')
@@ -213,51 +126,17 @@ class VelocityTriangleWidget(QWidget):
             }
         """)
 
-        right_layout.addWidget(self.toolbar)
-        right_layout.addWidget(self.main_canvas, 1)
-        right_layout.addWidget(self.status_label)
-        right_layout.addWidget(self.data_viewer)
+        main_layout.addWidget(self.toolbar)
+        main_layout.addWidget(self.main_canvas, 1)
+        main_layout.addWidget(self.status_label)
+        main_layout.addWidget(self.data_viewer)
 
-        main_layout.addWidget(right_widget, 1)
-    
-    def _spin(self, min_v, max_v, val, suffix="", decimals=1):
-        s = QDoubleSpinBox()
-        s.setRange(min_v, max_v)
-        s.setDecimals(decimals)
-        s.setValue(val)
-        if suffix:
-            s.setSuffix(suffix)
-        return s
+        # Hide data viewer by default (can be shown via set_data_viewer_visible)
+        self.data_viewer.setVisible(False)
     
     def _connect_signals(self):
-        for s in [self.rpm_spin, self.alpha1_spin, self.cm1_spin, self.cm2_spin,
-                  self._r1_hub_spin, self._r1_tip_spin, self._r2_hub_spin, self._r2_tip_spin,
-                  self._beta_in_hub_spin, self._beta_in_tip_spin, self._beta_out_hub_spin, self._beta_out_tip_spin,
-                  self._beta_blade_in_hub_spin, self._beta_blade_in_tip_spin, 
-                  self._beta_blade_out_hub_spin, self._beta_blade_out_tip_spin,
-                  self.k_blockage_spin]:
-            s.valueChanged.connect(self._on_change)
-    
-    def _on_change(self):
-        self._rpm = self.rpm_spin.value()
-        self._alpha1 = self.alpha1_spin.value()
-        self._cm1 = self.cm1_spin.value()
-        self._cm2 = self.cm2_spin.value()
-        self._r1_hub = self._r1_hub_spin.value()
-        self._r1_tip = self._r1_tip_spin.value()
-        self._r2_hub = self._r2_hub_spin.value()
-        self._r2_tip = self._r2_tip_spin.value()
-        self._beta_in_hub = self._beta_in_hub_spin.value()
-        self._beta_in_tip = self._beta_in_tip_spin.value()
-        self._beta_out_hub = self._beta_out_hub_spin.value()
-        self._beta_out_tip = self._beta_out_tip_spin.value()
-        self._beta_blade_in_hub = self._beta_blade_in_hub_spin.value()
-        self._beta_blade_in_tip = self._beta_blade_in_tip_spin.value()
-        self._beta_blade_out_hub = self._beta_blade_out_hub_spin.value()
-        self._beta_blade_out_tip = self._beta_blade_out_tip_spin.value()
-        self._k_blockage = self.k_blockage_spin.value()
-        self._update_all()
-        self.inputsChanged.emit()
+        """No longer needed - parameters set via public methods."""
+        pass
     
     def _update_all(self):
         # Compute all 4 triangles
@@ -333,26 +212,47 @@ class VelocityTriangleWidget(QWidget):
         axes = self.main_fig.subplots(2, 2)
 
         triangles_data = [
-            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),
-            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),
-            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),
-            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)
+            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),      # row 0, col 0
+            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),      # row 0, col 1
+            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),   # row 1, col 0
+            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)    # row 1, col 1
         ]
 
-        # Draw each triangle with independent axis limits
+        # Calculate axis limits per row (xlim) and per column (ylim)
+        margin = 1.5
+
+        # Calculate xlim for each row
+        row0_xmax = max(inlet_hub.u + margin, inlet_tip.u + margin)
+        row0_xmin = min(min(0, inlet_hub.wu) - margin, min(0, inlet_tip.wu) - margin)
+        row1_xmax = max(outlet_hub.u + margin, outlet_tip.u + margin)
+        row1_xmin = min(min(0, outlet_hub.wu) - margin, min(0, outlet_tip.wu) - margin)
+
+        # Calculate ylim for each column
+        col0_ymax = max(inlet_hub.cm * self._k_blockage * 1.15 + margin,
+                        outlet_hub.cm * self._k_blockage * 1.15 + margin)
+        col1_ymax = max(inlet_tip.cm * self._k_blockage * 1.15 + margin,
+                        outlet_tip.cm * self._k_blockage * 1.15 + margin)
+        unified_ymin = -margin - 2
+
+        # Map row/col to their limits
+        row_xlims = {
+            0: (row0_xmin, row0_xmax),  # Inlet row
+            1: (row1_xmin, row1_xmax)   # Outlet row
+        }
+        col_ylims = {
+            0: (unified_ymin, col0_ymax),  # Hub column
+            1: (unified_ymin, col1_ymax)   # Tip column
+        }
+
+        # Draw each triangle with row-wise xlim and column-wise ylim
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
 
-            # Calculate independent axis limits for this triangle
-            margin = 1.5
-            xmax = tri.u + margin
-            xmin = min(0, tri.wu) - margin
-            ymax = tri.cm * self._k_blockage * 1.15 + margin
-
-            ax.set_xlim(xmin, xmax)
-            ax.set_ylim(-margin - 2, ymax)
+            # Apply row-specific xlim and column-specific ylim
+            ax.set_xlim(*row_xlims[row])
+            ax.set_ylim(*col_ylims[col])
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
@@ -535,6 +435,93 @@ class VelocityTriangleWidget(QWidget):
         ax.legend(handles=legend_elements, loc='lower right', fontsize=8,
                  facecolor='#313244', edgecolor='#45475a', labelcolor='#cdd6f4',
                  framealpha=0.9)
+
+    def set_data_viewer_visible(self, visible: bool):
+        """Show or hide the data viewer table."""
+        self.data_viewer.setVisible(visible)
+
+    # Public setters for external parameter control
+    def set_rpm(self, rpm: float):
+        """Set rotational speed (RPM)."""
+        self._rpm = rpm
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_velocities(self, cm1: float, cm2: float):
+        """Set meridional velocities (m/s)."""
+        self._cm1 = cm1
+        self._cm2 = cm2
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_radii(self, r1_hub: float, r1_tip: float, r2_hub: float, r2_tip: float):
+        """Set radii (m)."""
+        self._r1_hub = r1_hub
+        self._r1_tip = r1_tip
+        self._r2_hub = r2_hub
+        self._r2_tip = r2_tip
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_flow_angles(self, beta_in_hub: float, beta_in_tip: float,
+                        beta_out_hub: float, beta_out_tip: float):
+        """Set flow angles β (degrees)."""
+        self._beta_in_hub = beta_in_hub
+        self._beta_in_tip = beta_in_tip
+        self._beta_out_hub = beta_out_hub
+        self._beta_out_tip = beta_out_tip
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_blade_angles(self, beta_blade_in_hub: float, beta_blade_in_tip: float,
+                         beta_blade_out_hub: float, beta_blade_out_tip: float):
+        """Set blade angles βB (degrees)."""
+        self._beta_blade_in_hub = beta_blade_in_hub
+        self._beta_blade_in_tip = beta_blade_in_tip
+        self._beta_blade_out_hub = beta_blade_out_hub
+        self._beta_blade_out_tip = beta_blade_out_tip
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_blockage_factor(self, k_blockage: float):
+        """Set blockage factor K."""
+        self._k_blockage = k_blockage
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_alpha1(self, alpha1: float):
+        """Set inlet flow angle α₁ (degrees)."""
+        self._alpha1 = alpha1
+        self._update_all()
+        self.inputsChanged.emit()
+
+    def set_all_parameters(self, rpm: float, cm1: float, cm2: float, alpha1: float,
+                          r1_hub: float, r1_tip: float, r2_hub: float, r2_tip: float,
+                          beta_in_hub: float, beta_in_tip: float,
+                          beta_out_hub: float, beta_out_tip: float,
+                          beta_blade_in_hub: float, beta_blade_in_tip: float,
+                          beta_blade_out_hub: float, beta_blade_out_tip: float,
+                          k_blockage: float):
+        """Set all parameters at once and update."""
+        self._rpm = rpm
+        self._cm1 = cm1
+        self._cm2 = cm2
+        self._alpha1 = alpha1
+        self._r1_hub = r1_hub
+        self._r1_tip = r1_tip
+        self._r2_hub = r2_hub
+        self._r2_tip = r2_tip
+        self._beta_in_hub = beta_in_hub
+        self._beta_in_tip = beta_in_tip
+        self._beta_out_hub = beta_out_hub
+        self._beta_out_tip = beta_out_tip
+        self._beta_blade_in_hub = beta_blade_in_hub
+        self._beta_blade_in_tip = beta_blade_in_tip
+        self._beta_blade_out_hub = beta_blade_out_hub
+        self._beta_blade_out_tip = beta_blade_out_tip
+        self._k_blockage = k_blockage
+        self._update_all()
+        self.inputsChanged.emit()
 
 
 if __name__ == "__main__":
