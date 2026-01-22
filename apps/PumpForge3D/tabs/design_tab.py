@@ -180,6 +180,8 @@ class DesignTab(QWidget):
         
         # Main splitter
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(4)
         
         # LEFT PANEL - Controls
         left_panel = self._create_left_panel()

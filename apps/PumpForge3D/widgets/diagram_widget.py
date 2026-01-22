@@ -28,7 +28,6 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle
-import matplotlib.pyplot as plt
 
 from pumpforge3d_core.geometry.bezier import BezierCurve4
 from pumpforge3d_core.geometry.inducer import InducerDesign
