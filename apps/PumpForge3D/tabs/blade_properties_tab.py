@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt, Signal
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
-    BladeThicknessMatrixWidget, BladeInputsWidget,
+    BladeThicknessMatrixWidget, BetaAngleTableWidget, BladeInputsWidget,
     TriangleDetailsWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
@@ -205,7 +205,15 @@ class BladePropertiesTab(QWidget):
 
         scroll_layout.addWidget(thickness_group)
 
-        # === 2. Blade Parameters Group (collapsible) ===
+        # === 2. Beta Angles Group (collapsible) ===
+        beta_group = CollapsibleSection("Beta Flow Angles")
+
+        self.beta_angles_widget = BetaAngleTableWidget()
+        beta_group.addWidget(self.beta_angles_widget)
+
+        scroll_layout.addWidget(beta_group)
+
+        # === 3. Blade Parameters Group (collapsible) ===
         params_group = CollapsibleSection("Blade Parameters")
 
         self.blade_inputs_widget = BladeInputsWidget()
@@ -328,22 +336,11 @@ class BladePropertiesTab(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(title)
 
-        # Vertical splitter for plots (top) and details (bottom)
+        # Vertical splitter for details (top) and plots (bottom)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
 
-        # === Analysis Plots (top) ===
-        plots_widget = QWidget()
-        plots_layout = QVBoxLayout(plots_widget)
-        plots_layout.setContentsMargins(4, 4, 4, 4)
-        plots_layout.setSpacing(4)
-
-        self.analysis_plots = BladeAnalysisPlotWidget()
-        plots_layout.addWidget(self.analysis_plots)
-
-        splitter.addWidget(plots_widget)
-
-        # === Triangle Details (bottom) ===
+        # === Triangle Details (top) ===
         details_widget = QWidget()
         details_layout = QVBoxLayout(details_widget)
         details_layout.setContentsMargins(4, 4, 4, 4)
@@ -354,9 +351,24 @@ class BladePropertiesTab(QWidget):
 
         splitter.addWidget(details_widget)
 
-        # Set splitter proportions: 60% plots, 40% details
-        splitter.setStretchFactor(0, 60)
-        splitter.setStretchFactor(1, 40)
+        # === Analysis Plots (bottom) ===
+        plots_widget = QWidget()
+        plots_layout = QVBoxLayout(plots_widget)
+        plots_layout.setContentsMargins(4, 4, 4, 4)
+        plots_layout.setSpacing(4)
+
+        plots_label = QLabel("Analysis Plots")
+        plots_label.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 10px; padding: 4px;")
+        plots_layout.addWidget(plots_label)
+
+        self.analysis_plots = BladeAnalysisPlotWidget()
+        plots_layout.addWidget(self.analysis_plots)
+
+        splitter.addWidget(plots_widget)
+
+        # Set splitter proportions: 40% details, 60% plots
+        splitter.setStretchFactor(0, 40)
+        splitter.setStretchFactor(1, 60)
 
         panel_layout.addWidget(splitter)
 
@@ -365,6 +377,7 @@ class BladePropertiesTab(QWidget):
     def _connect_signals(self):
         """Connect widget signals to update handlers."""
         self.thickness_widget.thicknessChanged.connect(self._on_thickness_changed)
+        self.beta_angles_widget.betaAnglesChanged.connect(self._on_beta_angles_changed)
         self.blade_inputs_widget.bladeCountChanged.connect(self._on_blade_count_changed)
         self.blade_inputs_widget.incidenceChanged.connect(self._on_incidence_changed)
         self.blade_inputs_widget.slipModeChanged.connect(self._on_slip_mode_changed)
@@ -376,6 +389,16 @@ class BladePropertiesTab(QWidget):
         """Handle thickness matrix change."""
         self._blade_properties.thickness = thickness
         self._update_all()
+
+    def _on_beta_angles_changed(self, angles: dict):
+        """Handle beta flow angles change."""
+        # Update triangle widget with new beta angles
+        self.triangle_widget.set_flow_angles(
+            beta_in_hub=angles['beta_in_hub'],
+            beta_in_tip=angles['beta_in_tip'],
+            beta_out_hub=angles['beta_out_hub'],
+            beta_out_tip=angles['beta_out_tip']
+        )
 
     def _on_blade_count_changed(self, count):
         """Handle blade count change."""

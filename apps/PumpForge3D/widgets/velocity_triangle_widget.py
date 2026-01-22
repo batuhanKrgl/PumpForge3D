@@ -218,41 +218,41 @@ class VelocityTriangleWidget(QWidget):
             ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)    # row 1, col 1
         ]
 
-        # Calculate axis limits per row (xlim) and per column (ylim)
+        # Calculate axis limits: column-wise xlim, row-wise ylim
         margin = 1.5
 
-        # Calculate xlim for each row
-        row0_xmax = max(inlet_hub.u + margin, inlet_tip.u + margin)
-        row0_xmin = min(min(0, inlet_hub.wu) - margin, min(0, inlet_tip.wu) - margin)
-        row1_xmax = max(outlet_hub.u + margin, outlet_tip.u + margin)
-        row1_xmin = min(min(0, outlet_hub.wu) - margin, min(0, outlet_tip.wu) - margin)
+        # Calculate xlim for each column (Hub col, Tip col)
+        col0_xmax = max(inlet_hub.u + margin, outlet_hub.u + margin)
+        col0_xmin = min(min(0, inlet_hub.wu) - margin, min(0, outlet_hub.wu) - margin)
+        col1_xmax = max(inlet_tip.u + margin, outlet_tip.u + margin)
+        col1_xmin = min(min(0, inlet_tip.wu) - margin, min(0, outlet_tip.wu) - margin)
 
-        # Calculate ylim for each column
-        col0_ymax = max(inlet_hub.cm * self._k_blockage * 1.15 + margin,
-                        outlet_hub.cm * self._k_blockage * 1.15 + margin)
-        col1_ymax = max(inlet_tip.cm * self._k_blockage * 1.15 + margin,
+        # Calculate ylim for each row (Inlet row, Outlet row)
+        row0_ymax = max(inlet_hub.cm * self._k_blockage * 1.15 + margin,
+                        inlet_tip.cm * self._k_blockage * 1.15 + margin)
+        row1_ymax = max(outlet_hub.cm * self._k_blockage * 1.15 + margin,
                         outlet_tip.cm * self._k_blockage * 1.15 + margin)
         unified_ymin = -margin - 2
 
-        # Map row/col to their limits
-        row_xlims = {
-            0: (row0_xmin, row0_xmax),  # Inlet row
-            1: (row1_xmin, row1_xmax)   # Outlet row
+        # Map column/row to their limits
+        col_xlims = {
+            0: (col0_xmin, col0_xmax),  # Hub column
+            1: (col1_xmin, col1_xmax)   # Tip column
         }
-        col_ylims = {
-            0: (unified_ymin, col0_ymax),  # Hub column
-            1: (unified_ymin, col1_ymax)   # Tip column
+        row_ylims = {
+            0: (unified_ymin, row0_ymax),  # Inlet row
+            1: (unified_ymin, row1_ymax)   # Outlet row
         }
 
-        # Draw each triangle with row-wise xlim and column-wise ylim
+        # Draw each triangle with column-wise xlim and row-wise ylim
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
             self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
 
-            # Apply row-specific xlim and column-specific ylim
-            ax.set_xlim(*row_xlims[row])
-            ax.set_ylim(*col_ylims[col])
+            # Apply column-specific xlim and row-specific ylim
+            ax.set_xlim(*col_xlims[col])
+            ax.set_ylim(*row_ylims[row])
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)

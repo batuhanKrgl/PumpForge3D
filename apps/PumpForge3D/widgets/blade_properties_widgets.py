@@ -270,6 +270,149 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.blockSignals(False)
 
 
+class BetaAngleTableWidget(QWidget):
+    """
+    2×2 editable table for beta flow angles (hub/tip × inlet/outlet).
+    Pattern from beta_editor_widget.py table.
+    Units: degrees
+    """
+
+    betaAnglesChanged = Signal(dict)  # {'beta_in_hub': float, 'beta_out_hub': float, ...}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._angles = {
+            'beta_in_hub': 25.0,
+            'beta_out_hub': 55.0,
+            'beta_in_tip': 30.0,
+            'beta_out_tip': 60.0
+        }
+        self._setup_ui()
+        self._connect_signals()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # Table with editable cells
+        self.table = QTableWidget(2, 2)
+        self.table.setHorizontalHeaderLabels(['β Inlet', 'β Outlet'])
+        self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
+
+        # Disable scrollbars
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Stretch columns to fill width, fixed row heights
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.setRowHeight(0, 28)
+        self.table.setRowHeight(1, 28)
+
+        # No vertical size constraints - let it fit naturally
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        # Style (same as thickness table)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e2e;
+                color: #cdd6f4;
+                gridline-color: #45475a;
+                border: 1px solid #45475a;
+                font-size: 10px;
+            }
+            QTableWidget::item {
+                padding: 4px;
+                text-align: center;
+            }
+            QHeaderView::section {
+                background-color: #313244;
+                color: #cdd6f4;
+                padding: 4px;
+                border: 1px solid #45475a;
+                font-weight: bold;
+                font-size: 9px;
+            }
+        """)
+
+        # Populate with editable text items
+        for row in range(2):
+            for col in range(2):
+                item = QTableWidgetItem()
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, col, item)
+
+        # Set initial values
+        self.table.item(0, 0).setText(f"{self._angles['beta_in_hub']:.1f}")
+        self.table.item(0, 1).setText(f"{self._angles['beta_out_hub']:.1f}")
+        self.table.item(1, 0).setText(f"{self._angles['beta_in_tip']:.1f}")
+        self.table.item(1, 1).setText(f"{self._angles['beta_out_tip']:.1f}")
+
+        layout.addWidget(self.table)
+
+    def _connect_signals(self):
+        """Connect table itemChanged signal."""
+        self.table.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item):
+        """Handle cell edit and emit signal."""
+        try:
+            value = float(item.text())
+            # Clamp to reasonable range
+            value = max(0.0, min(value, 90.0))
+
+            # Update internal angles dict
+            row = item.row()
+            col = item.column()
+
+            if row == 0 and col == 0:
+                self._angles['beta_in_hub'] = value
+            elif row == 0 and col == 1:
+                self._angles['beta_out_hub'] = value
+            elif row == 1 and col == 0:
+                self._angles['beta_in_tip'] = value
+            elif row == 1 and col == 1:
+                self._angles['beta_out_tip'] = value
+
+            # Update display with formatted value
+            self.table.blockSignals(True)
+            item.setText(f"{value:.1f}")
+            self.table.blockSignals(False)
+
+            # Emit change signal
+            self.betaAnglesChanged.emit(self._angles.copy())
+
+        except ValueError:
+            # Invalid input, revert to previous value
+            self.table.blockSignals(True)
+            if item.row() == 0 and item.column() == 0:
+                item.setText(f"{self._angles['beta_in_hub']:.1f}")
+            elif item.row() == 0 and item.column() == 1:
+                item.setText(f"{self._angles['beta_out_hub']:.1f}")
+            elif item.row() == 1 and item.column() == 0:
+                item.setText(f"{self._angles['beta_in_tip']:.1f}")
+            elif item.row() == 1 and item.column() == 1:
+                item.setText(f"{self._angles['beta_out_tip']:.1f}")
+            self.table.blockSignals(False)
+
+    def get_angles(self) -> dict:
+        """Get current beta angles."""
+        return self._angles.copy()
+
+    def set_angles(self, angles: dict):
+        """Set beta angles values."""
+        self._angles = angles.copy()
+        self.table.blockSignals(True)
+
+        self.table.item(0, 0).setText(f"{angles.get('beta_in_hub', 25.0):.1f}")
+        self.table.item(0, 1).setText(f"{angles.get('beta_out_hub', 55.0):.1f}")
+        self.table.item(1, 0).setText(f"{angles.get('beta_in_tip', 30.0):.1f}")
+        self.table.item(1, 1).setText(f"{angles.get('beta_out_tip', 60.0):.1f}")
+
+        self.table.blockSignals(False)
+
+
 class BladeInputsWidget(QWidget):
     """
     Blade parameters input widget using StyledSpinBox pattern from Design tab.
@@ -601,7 +744,7 @@ class SlipCalculationWidget(QWidget):
 class TriangleDetailsWidget(QWidget):
     """
     Detailed velocity triangle information in table format.
-    Two-panel layout showing Leading edge (Hub/Tip) and Trailing edge (Hub/Tip).
+    Single table with Hub (left) | Separator | Tip (right) layout.
     """
 
     def __init__(self, parent=None):
@@ -609,41 +752,33 @@ class TriangleDetailsWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(0)
 
-        # Left table: Leading edge (@Hub and @Shroud/Tip)
-        self.leading_table = QTableWidget()
-        self.leading_table.setColumnCount(3)
-        self.leading_table.setHorizontalHeaderLabels(['', 'Leading edge\n@Hub', 'Leading edge\n@Shroud'])
-        self._configure_table(self.leading_table)
-        layout.addWidget(self.leading_table)
+        # Single unified table: [Param] [Hub Inlet] [Hub Outlet] | [Tip Inlet] [Tip Outlet]
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(['', 'Leading edge\n@Hub', 'Trailing edge\n@Hub',
+                                               'Leading edge\n@Shroud', 'Trailing edge\n@Shroud'])
 
-        # Right table: Trailing edge (@Hub and @Shroud/Tip)
-        self.trailing_table = QTableWidget()
-        self.trailing_table.setColumnCount(3)
-        self.trailing_table.setHorizontalHeaderLabels(['', 'Trailing edge\n@Hub', 'Trailing edge\n@Shroud'])
-        self._configure_table(self.trailing_table)
-        layout.addWidget(self.trailing_table)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
-    def _configure_table(self, table):
-        """Configure common table properties."""
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # Column widths
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(0, 80)  # Parameter name column
 
-        # Stretch columns
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        table.setColumnWidth(0, 80)  # Parameter name column
+        # No horizontal scrollbar
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # No scrollbars
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        table.setStyleSheet("""
+        self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #1e1e2e;
                 color: #cdd6f4;
@@ -653,7 +788,6 @@ class TriangleDetailsWidget(QWidget):
             }
             QTableWidget::item {
                 padding: 4px;
-                border-right: 1px solid #45475a;
             }
             QHeaderView::section {
                 background-color: #313244;
@@ -664,6 +798,8 @@ class TriangleDetailsWidget(QWidget):
                 font-size: 9px;
             }
         """)
+
+        layout.addWidget(self.table)
 
     def update_details(self, triangle_data_dict: dict):
         """
@@ -678,61 +814,109 @@ class TriangleDetailsWidget(QWidget):
         outlet_hub = triangle_data_dict.get('outlet_hub', {})
         outlet_tip = triangle_data_dict.get('outlet_tip', {})
 
-        # Define parameter rows
+        # Define parameter rows with merge info: (key, label, merge_hub_cols)
+        # merge_hub_cols: True if hub has single value (merge cols 1-2)
         params = [
-            ('z', 'z', '', 0),  # Blade count
-            ('r', 'r', 'mm', 2),  # Radius
-            ('d', 'd', 'mm', 2),  # Diameter
-            ('alpha', 'αF', '°', 1),  # Flow angle
-            ('beta', 'βF', '°', 1),  # Relative flow angle
-            ('u', 'u', 'm/s', 2),  # Blade speed
-            ('cm', 'cm', 'm/s', 2),  # Meridional velocity
-            ('cu', 'cu', 'm/s', 2),  # Circumferential velocity
-            ('cr', 'cr', 'm/s', 2),  # Radial velocity
-            ('cz', 'cz', 'm/s', 2),  # Axial velocity
-            ('c', 'c', 'm/s', 2),  # Absolute velocity
-            ('wu', 'wu', 'm/s', 2),  # Relative tangential velocity
-            ('w', 'w', 'm/s', 2),  # Relative velocity
-            ('cu_r', 'cu·r', 'm²/s', 3),  # Angular momentum
-            ('i_1delta', 'i 1δ', '°', 1),  # Incidence
-            ('beta_blade', 'β blade', '°', 1),  # Blade angle
+            ('z', 'z', True),             # Blade count - merged for hub
+            ('r', 'r', False),            # Radius - different inlet/outlet
+            ('d', 'd', False),            # Diameter
+            ('alpha', 'αF', False),       # Flow angle
+            ('beta', 'βF', False),        # Relative flow angle
+            ('u', 'u', False),            # Blade speed
+            ('cm', 'cm', False),          # Meridional velocity
+            ('cu', 'cu', False),          # Circumferential velocity
+            ('cr', 'cr', False),          # Radial velocity
+            ('cz', 'cz', False),          # Axial velocity
+            ('c', 'c', False),            # Absolute velocity
+            ('wu', 'wu', False),          # Relative tangential velocity
+            ('w', 'w', False),            # Relative velocity
+            ('cu_r', 'cu·r', False),      # Angular momentum
+            ('tau', 'τ', True),           # Obstruction - merged
+            ('i_1delta', 'i|δ', False),   # Incidence/deviation
+            ('w2_w1', 'w2/w1', True),     # Velocity ratio - merged
+            ('c2_c1', 'c2/c1', True),     # Velocity ratio - merged
+            ('delta_alpha', 'ΔαF', True), # Deflection angle - merged
+            ('delta_beta', 'ΔβF', True),  # Deflection angle - merged
+            ('phi', 'φ=ΔβB', True),       # Blade camber - merged
+            ('gamma', 'γ', True),         # Slip coefficient - merged
+            ('delta_cu_r', 'Δ(cu·r)', True), # Swirl difference - merged
+            ('T', 'T', True),             # Torque - merged
+            ('H', 'H', True),             # Head - merged
         ]
 
-        # Populate leading edge table (inlet)
-        self._populate_table(self.leading_table, params, inlet_hub, inlet_tip)
+        self.table.setRowCount(len(params))
 
-        # Populate trailing edge table (outlet)
-        self._populate_table(self.trailing_table, params, outlet_hub, outlet_tip)
-
-    def _populate_table(self, table, params, hub_data, tip_data):
-        """Populate a table with hub and tip data."""
-        table.setRowCount(len(params))
-
-        for row, (key, label, unit, decimals) in enumerate(params):
-            # Parameter name
+        for row, (key, label, merge_hub) in enumerate(params):
+            # Parameter name (col 0)
             param_item = QTableWidgetItem(label)
             param_item.setFont(QFont("", -1, QFont.Weight.Bold))
-            table.setItem(row, 0, param_item)
+            self.table.setItem(row, 0, param_item)
 
-            # Hub value
-            hub_value = hub_data.get(key, '')
-            if isinstance(hub_value, (int, float)):
-                hub_str = f"{hub_value:.{decimals}f}"
-            else:
-                hub_str = str(hub_value) if hub_value else '-'
-            hub_item = QTableWidgetItem(hub_str)
-            hub_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 1, hub_item)
+            if merge_hub:
+                # Single value for hub - merge columns 1-2
+                hub_value = inlet_hub.get(key, outlet_hub.get(key, ''))
+                if isinstance(hub_value, (int, float)):
+                    hub_str = f"{hub_value:.2f}"
+                else:
+                    hub_str = str(hub_value) if hub_value else '-'
 
-            # Tip value
-            tip_value = tip_data.get(key, '')
-            if isinstance(tip_value, (int, float)):
-                tip_str = f"{tip_value:.{decimals}f}"
+                hub_item = QTableWidgetItem(hub_str)
+                hub_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 1, hub_item)
+                self.table.setSpan(row, 1, 1, 2)  # Merge columns 1-2
+
+                # Same for tip - merge columns 3-4
+                tip_value = inlet_tip.get(key, outlet_tip.get(key, ''))
+                if isinstance(tip_value, (int, float)):
+                    tip_str = f"{tip_value:.2f}"
+                else:
+                    tip_str = str(tip_value) if tip_value else '-'
+
+                tip_item = QTableWidgetItem(tip_str)
+                tip_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 3, tip_item)
+                self.table.setSpan(row, 3, 1, 2)  # Merge columns 3-4
             else:
-                tip_str = str(tip_value) if tip_value else '-'
-            tip_item = QTableWidgetItem(tip_str)
-            tip_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row, 2, tip_item)
+                # Different values for inlet/outlet
+                # Hub inlet (col 1)
+                hub_inlet_val = inlet_hub.get(key, '')
+                if isinstance(hub_inlet_val, (int, float)):
+                    hub_inlet_str = f"{hub_inlet_val:.2f}"
+                else:
+                    hub_inlet_str = str(hub_inlet_val) if hub_inlet_val else '-'
+                hub_inlet_item = QTableWidgetItem(hub_inlet_str)
+                hub_inlet_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 1, hub_inlet_item)
+
+                # Hub outlet (col 2)
+                hub_outlet_val = outlet_hub.get(key, '')
+                if isinstance(hub_outlet_val, (int, float)):
+                    hub_outlet_str = f"{hub_outlet_val:.2f}"
+                else:
+                    hub_outlet_str = str(hub_outlet_val) if hub_outlet_val else '-'
+                hub_outlet_item = QTableWidgetItem(hub_outlet_str)
+                hub_outlet_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 2, hub_outlet_item)
+
+                # Tip inlet (col 3)
+                tip_inlet_val = inlet_tip.get(key, '')
+                if isinstance(tip_inlet_val, (int, float)):
+                    tip_inlet_str = f"{tip_inlet_val:.2f}"
+                else:
+                    tip_inlet_str = str(tip_inlet_val) if tip_inlet_val else '-'
+                tip_inlet_item = QTableWidgetItem(tip_inlet_str)
+                tip_inlet_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 3, tip_inlet_item)
+
+                # Tip outlet (col 4)
+                tip_outlet_val = outlet_tip.get(key, '')
+                if isinstance(tip_outlet_val, (int, float)):
+                    tip_outlet_str = f"{tip_outlet_val:.2f}"
+                else:
+                    tip_outlet_str = str(tip_outlet_val) if tip_outlet_val else '-'
+                tip_outlet_item = QTableWidgetItem(tip_outlet_str)
+                tip_outlet_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 4, tip_outlet_item)
 
             # Set row height
-            table.setRowHeight(row, 24)
+            self.table.setRowHeight(row, 22)
