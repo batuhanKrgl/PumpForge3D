@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QComboBox, QTreeWidget, QTreeWidgetItem, QSizePolicy,
     QAbstractSpinBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
@@ -168,6 +168,10 @@ class DesignTab(QWidget):
         super().__init__(parent)
         self.design = design
         self.undo_stack = undo_stack
+        self._dimension_apply_timer = QTimer(self)
+        self._dimension_apply_timer.setSingleShot(True)
+        self._dimension_apply_timer.setInterval(200)
+        self._dimension_apply_timer.timeout.connect(self._apply_dimensions)
         self._setup_ui()
         self._load_from_design()
         self._connect_signals()
@@ -424,13 +428,20 @@ class DesignTab(QWidget):
     
     def _connect_signals(self):
         """Connect UI signals."""
-        # Dimension spinboxes - immediate update on value change
-        self.r_h_in_spin.valueChanged.connect(self._apply_dimensions)
-        self.r_t_in_spin.valueChanged.connect(self._apply_dimensions)
-        self.r_h_out_spin.valueChanged.connect(self._apply_dimensions)
-        self.r_t_out_spin.valueChanged.connect(self._apply_dimensions)
-        self.L_hub_spin.valueChanged.connect(self._apply_dimensions)
-        self.L_tip_spin.valueChanged.connect(self._apply_dimensions)
+        # Dimension spinboxes - debounce while typing, commit on editing finished
+        self.r_h_in_spin.valueChanged.connect(self._schedule_dimension_apply)
+        self.r_t_in_spin.valueChanged.connect(self._schedule_dimension_apply)
+        self.r_h_out_spin.valueChanged.connect(self._schedule_dimension_apply)
+        self.r_t_out_spin.valueChanged.connect(self._schedule_dimension_apply)
+        self.L_hub_spin.valueChanged.connect(self._schedule_dimension_apply)
+        self.L_tip_spin.valueChanged.connect(self._schedule_dimension_apply)
+
+        self.r_h_in_spin.editingFinished.connect(self._apply_dimensions)
+        self.r_t_in_spin.editingFinished.connect(self._apply_dimensions)
+        self.r_h_out_spin.editingFinished.connect(self._apply_dimensions)
+        self.r_t_out_spin.editingFinished.connect(self._apply_dimensions)
+        self.L_hub_spin.editingFinished.connect(self._apply_dimensions)
+        self.L_tip_spin.editingFinished.connect(self._apply_dimensions)
         
         # Separate L toggle
         self.separate_L_check.toggled.connect(self._toggle_separate_lengths)
@@ -488,7 +499,7 @@ class DesignTab(QWidget):
     def _apply_dimensions(self):
         """Apply dimension changes to design."""
         from ..undo_commands import ChangeDimensionsCommand
-        
+
         old_dims = self.design.main_dims.to_dict()
         
         try:
@@ -514,6 +525,12 @@ class DesignTab(QWidget):
         except ValueError as e:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Invalid Dimensions", str(e))
+
+    def _schedule_dimension_apply(self):
+        """Debounce dimension updates to avoid excessive redraws."""
+        if self._dimension_apply_timer.isActive():
+            self._dimension_apply_timer.stop()
+        self._dimension_apply_timer.start()
     
     def _on_dimensions_applied(self):
         """Called after dimensions are applied."""

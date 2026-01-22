@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QMenu, QFileDialog, QMessageBox, QLabel
 )
-from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer
 from PySide6.QtGui import QCursor
 
 import matplotlib
@@ -67,6 +67,8 @@ class DiagramWidget(QWidget):
         self._measure_start: Optional[Tuple[float, float]] = None
         self._hover_curve: Optional[str] = None
         self._hover_point: Optional[int] = None
+        self._pending_hover_curve: Optional[str] = None
+        self._pending_hover_point: Optional[int] = None
         
         # Display options
         self.show_grid = True
@@ -85,6 +87,14 @@ class DiagramWidget(QWidget):
         self._setup_ui()
         self._setup_plot()
         self._connect_events()
+        self._setup_hover_throttle()
+
+    def _setup_hover_throttle(self):
+        """Setup a throttle to limit hover redraw frequency."""
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(33)
+        self._hover_timer.timeout.connect(self._apply_hover_state)
     
     def _setup_ui(self):
         """Create the widget UI."""
@@ -527,9 +537,19 @@ class DiagramWidget(QWidget):
             # Hover detection
             curve, idx = self._pick_control_point(event.xdata, event.ydata)
             if (curve, idx) != (self._hover_curve, self._hover_point):
-                self._hover_curve = curve
-                self._hover_point = idx
-                self.update_plot()
+                self._pending_hover_curve = curve
+                self._pending_hover_point = idx
+                if not self._hover_timer.isActive():
+                    self._hover_timer.start()
+
+    def _apply_hover_state(self):
+        """Apply pending hover state and redraw at a throttled rate."""
+        if (self._pending_hover_curve, self._pending_hover_point) != (
+            self._hover_curve, self._hover_point
+        ):
+            self._hover_curve = self._pending_hover_curve
+            self._hover_point = self._pending_hover_point
+            self.update_plot()
     
     def _on_scroll(self, event):
         """Handle scroll event for zooming."""
