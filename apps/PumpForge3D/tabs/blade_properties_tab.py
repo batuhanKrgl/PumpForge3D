@@ -21,7 +21,8 @@ from PySide6.QtCore import Qt, Signal
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BetaAngleTableWidget, BladeInputsWidget,
-    TriangleDetailsWidget
+    TriangleDetailsWidget, SpanNumberInputWidget, IncidenceInputWidget,
+    SlipInputWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
@@ -112,6 +113,13 @@ class BladePropertiesTab(QWidget):
             mock_slip_deg=5.0
         )
 
+        # Initialize span-wise data storage
+        self._incidence_hub = 0.0
+        self._incidence_tip = 0.0
+        self._beta_spans = [0.0, 1.0]  # Default: hub, tip
+        self._beta_inlet_angles = [25.0, 30.0]  # Default: hub, tip
+        self._beta_outlet_angles = [55.0, 60.0]  # Default: hub, tip
+
         # Create parameter window (non-modal, hidden by default)
         self.params_window = VelocityTriangleParamsWindow()
         self.params_window.hide()
@@ -197,7 +205,56 @@ class BladePropertiesTab(QWidget):
         scroll_layout.setContentsMargins(6, 6, 6, 6)
         scroll_layout.setSpacing(8)
 
-        # === 1. Blade Thickness Group (collapsible) ===
+        # === 1. Analysis Settings (span number) ===
+        analysis_group = CollapsibleSection("Analysis Settings")
+
+        self.span_input_widget = SpanNumberInputWidget()
+        analysis_group.addWidget(self.span_input_widget)
+
+        scroll_layout.addWidget(analysis_group)
+
+        # === 2. Blade Parameters (blade count, etc.) ===
+        params_group = CollapsibleSection("Blade Parameters")
+
+        # Simple blade count spinbox (extract just z from BladeInputsWidget)
+        from ..widgets.blade_properties_widgets import StyledSpinBox, create_subscript_label
+        from PySide6.QtWidgets import QFormLayout
+
+        blade_params_widget = QWidget()
+        blade_params_layout = QFormLayout(blade_params_widget)
+        blade_params_layout.setContentsMargins(0, 0, 0, 0)
+        blade_params_layout.setSpacing(8)
+        blade_params_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Blade count z (integer)
+        self.blade_count_spin = StyledSpinBox()
+        self.blade_count_spin.setRange(1, 20)
+        self.blade_count_spin.setDecimals(0)
+        self.blade_count_spin.setSingleStep(1)
+        self.blade_count_spin.setValue(3)
+        self.blade_count_spin.setToolTip("Number of blades")
+        blade_params_layout.addRow("z:", self.blade_count_spin)
+
+        params_group.addWidget(blade_params_widget)
+        scroll_layout.addWidget(params_group)
+
+        # === 3. Incidence Angles (hub + tip) ===
+        incidence_group = CollapsibleSection("Incidence Angles")
+
+        self.incidence_widget = IncidenceInputWidget()
+        incidence_group.addWidget(self.incidence_widget)
+
+        scroll_layout.addWidget(incidence_group)
+
+        # === 4. Slip Settings ===
+        slip_group = CollapsibleSection("Slip Settings")
+
+        self.slip_widget = SlipInputWidget()
+        slip_group.addWidget(self.slip_widget)
+
+        scroll_layout.addWidget(slip_group)
+
+        # === 5. Blade Thickness ===
         thickness_group = CollapsibleSection("Blade Thickness")
 
         self.thickness_widget = BladeThicknessMatrixWidget()
@@ -205,21 +262,13 @@ class BladePropertiesTab(QWidget):
 
         scroll_layout.addWidget(thickness_group)
 
-        # === 2. Beta Angles Group (collapsible) ===
+        # === 6. Beta Flow Angles (dynamic table) ===
         beta_group = CollapsibleSection("Beta Flow Angles")
 
         self.beta_angles_widget = BetaAngleTableWidget()
         beta_group.addWidget(self.beta_angles_widget)
 
         scroll_layout.addWidget(beta_group)
-
-        # === 3. Blade Parameters Group (collapsible) ===
-        params_group = CollapsibleSection("Blade Parameters")
-
-        self.blade_inputs_widget = BladeInputsWidget()
-        params_group.addWidget(self.blade_inputs_widget)
-
-        scroll_layout.addWidget(params_group)
 
         scroll_layout.addStretch()
 
@@ -376,14 +425,49 @@ class BladePropertiesTab(QWidget):
 
     def _connect_signals(self):
         """Connect widget signals to update handlers."""
+        # Span number input - updates beta angle table
+        self.span_input_widget.spanCountChanged.connect(self._on_span_count_changed)
+
+        # Blade parameters
+        self.blade_count_spin.valueChanged.connect(self._on_blade_count_changed)
+
+        # Incidence and slip
+        self.incidence_widget.incidenceChanged.connect(self._on_incidence_changed)
+        self.slip_widget.slipSettingsChanged.connect(self._on_slip_settings_changed)
+
+        # Thickness and beta angles
         self.thickness_widget.thicknessChanged.connect(self._on_thickness_changed)
         self.beta_angles_widget.betaAnglesChanged.connect(self._on_beta_angles_changed)
-        self.blade_inputs_widget.bladeCountChanged.connect(self._on_blade_count_changed)
-        self.blade_inputs_widget.incidenceChanged.connect(self._on_incidence_changed)
-        self.blade_inputs_widget.slipModeChanged.connect(self._on_slip_mode_changed)
-        self.blade_inputs_widget.mockSlipChanged.connect(self._on_mock_slip_changed)
+
+        # Triangle and params
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
+
+    def _on_span_count_changed(self, count: int):
+        """Handle span count change - update beta angle table."""
+        self.beta_angles_widget.set_span_count(count)
+
+    def _on_blade_count_changed(self, count: float):
+        """Handle blade count change."""
+        self._blade_properties.blade_count = int(count)
+        self._update_slip_calculation()
+        self._update_analysis_plots()
+
+    def _on_incidence_changed(self, incidence_dict: dict):
+        """Handle incidence angles change."""
+        # incidence_dict: {'hub': float, 'tip': float}
+        # For now, store and use for calculations later
+        self._incidence_hub = incidence_dict['hub']
+        self._incidence_tip = incidence_dict['tip']
+        self._update_triangle_details()
+        self._update_analysis_plots()
+
+    def _on_slip_settings_changed(self, settings: dict):
+        """Handle slip settings change."""
+        # settings: {'mode': str, 'mock_slip': float}
+        self._blade_properties.slip_mode = settings['mode']
+        self._blade_properties.mock_slip_deg = settings['mock_slip']
+        self._update_slip_calculation()
 
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
@@ -392,19 +476,20 @@ class BladePropertiesTab(QWidget):
 
     def _on_beta_angles_changed(self, angles: dict):
         """Handle beta flow angles change."""
-        # Update triangle widget with new beta angles
-        self.triangle_widget.set_flow_angles(
-            beta_in_hub=angles['beta_in_hub'],
-            beta_in_tip=angles['beta_in_tip'],
-            beta_out_hub=angles['beta_out_hub'],
-            beta_out_tip=angles['beta_out_tip']
-        )
+        # angles: {'spans': [...], 'inlet': [...], 'outlet': [...]}
+        # Store for calculations
+        self._beta_spans = angles['spans']
+        self._beta_inlet_angles = angles['inlet']
+        self._beta_outlet_angles = angles['outlet']
 
-    def _on_blade_count_changed(self, count):
-        """Handle blade count change."""
-        self._blade_properties.blade_count = count
-        self._update_slip_calculation()
-        self._update_analysis_plots()
+        # Update triangle widget with hub and tip values
+        if len(angles['inlet']) >= 2 and len(angles['outlet']) >= 2:
+            self.triangle_widget.set_flow_angles(
+                beta_in_hub=angles['inlet'][0],
+                beta_in_tip=angles['inlet'][-1],
+                beta_out_hub=angles['outlet'][0],
+                beta_out_tip=angles['outlet'][-1]
+            )
 
     def _on_incidence_changed(self, incidence):
         """Handle incidence change."""

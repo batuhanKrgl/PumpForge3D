@@ -270,23 +270,224 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.blockSignals(False)
 
 
-class BetaAngleTableWidget(QWidget):
+class SpanNumberInputWidget(QWidget):
     """
-    2×2 editable table for beta flow angles (hub/tip × inlet/outlet).
-    Pattern from beta_editor_widget.py table.
-    Units: degrees
+    Widget for selecting number of span positions (2-10).
+    Used to configure dynamic flow angle table.
     """
 
-    betaAnglesChanged = Signal(dict)  # {'beta_in_hub': float, 'beta_out_hub': float, ...}
+    spanCountChanged = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._angles = {
-            'beta_in_hub': 25.0,
-            'beta_out_hub': 55.0,
-            'beta_in_tip': 30.0,
-            'beta_out_tip': 60.0
-        }
+        self._span_count = 2  # Default: hub + tip
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QFormLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Span count spinbox
+        span_spin = StyledSpinBox()
+        span_spin.setRange(2, 10)
+        span_spin.setDecimals(0)
+        span_spin.setSingleStep(1)
+        span_spin.setValue(self._span_count)
+        span_spin.setToolTip("Number of span positions for analysis (2=hub+tip, 3=hub+mid+tip, etc.)")
+        span_spin.valueChanged.connect(self._on_span_count_changed)
+        self.span_spin = span_spin
+
+        layout.addRow("Spans:", span_spin)
+
+    def _on_span_count_changed(self, value):
+        self._span_count = int(value)
+        self.spanCountChanged.emit(self._span_count)
+
+    def get_span_count(self) -> int:
+        return self._span_count
+
+    def set_span_count(self, count: int):
+        count = max(2, min(10, count))
+        self._span_count = count
+        self.span_spin.setValue(count)
+
+
+class IncidenceInputWidget(QWidget):
+    """
+    Widget for hub + tip incidence angle input with linear interpolation.
+    Used for inlet blade angle calculation.
+    """
+
+    incidenceChanged = Signal(dict)  # {'hub': float, 'tip': float}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._incidence_hub = 0.0
+        self._incidence_tip = 0.0
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QFormLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Hub incidence
+        hub_spin = StyledSpinBox()
+        hub_spin.setRange(-20.0, 20.0)
+        hub_spin.setDecimals(1)
+        hub_spin.setSingleStep(0.5)
+        hub_spin.setSuffix("°")
+        hub_spin.setValue(self._incidence_hub)
+        hub_spin.setToolTip("Incidence angle at hub (βF - βB)")
+        hub_spin.valueChanged.connect(lambda v: self._on_value_changed('hub', v))
+        self.hub_spin = hub_spin
+        layout.addRow(create_subscript_label("i", "hub"), hub_spin)
+
+        # Tip incidence
+        tip_spin = StyledSpinBox()
+        tip_spin.setRange(-20.0, 20.0)
+        tip_spin.setDecimals(1)
+        tip_spin.setSingleStep(0.5)
+        tip_spin.setSuffix("°")
+        tip_spin.setValue(self._incidence_tip)
+        tip_spin.setToolTip("Incidence angle at tip (βF - βB)")
+        tip_spin.valueChanged.connect(lambda v: self._on_value_changed('tip', v))
+        self.tip_spin = tip_spin
+        layout.addRow(create_subscript_label("i", "tip"), tip_spin)
+
+        # Info label
+        info_label = QLabel("Intermediate spans: linear interpolation")
+        info_label.setStyleSheet("color: #a6adc8; font-size: 9px; font-style: italic;")
+        layout.addRow("", info_label)
+
+    def _on_value_changed(self, position: str, value: float):
+        if position == 'hub':
+            self._incidence_hub = value
+        else:
+            self._incidence_tip = value
+
+        self.incidenceChanged.emit({'hub': self._incidence_hub, 'tip': self._incidence_tip})
+
+    def get_incidence(self) -> dict:
+        return {'hub': self._incidence_hub, 'tip': self._incidence_tip}
+
+    def set_incidence(self, hub: float, tip: float):
+        self._incidence_hub = hub
+        self._incidence_tip = tip
+        self.hub_spin.setValue(hub)
+        self.tip_spin.setValue(tip)
+
+
+class SlipInputWidget(QWidget):
+    """
+    Widget for slip calculation settings (separate from incidence).
+    """
+
+    slipSettingsChanged = Signal(dict)  # {'mode': str, 'mock_slip': float}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._slip_mode = "Mock"
+        self._mock_slip = 5.0
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QFormLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Slip mode
+        slip_mode_combo = QComboBox()
+        slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
+        slip_mode_combo.setCurrentText(self._slip_mode)
+        slip_mode_combo.setFixedWidth(134)
+        slip_mode_combo.setToolTip("Slip calculation method:\n• Mock: Manual slip angle\n• Wiesner: Empirical formula\n• Gülich: CFturbo recommended")
+        slip_mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                padding: 4px 6px;
+                font-size: 11px;
+                border-radius: 4px;
+            }
+            QComboBox:hover { background-color: #45475a; }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #313244;
+                color: #cdd6f4;
+                selection-background-color: #45475a;
+            }
+        """)
+        slip_mode_combo.currentTextChanged.connect(self._on_slip_mode_changed)
+        self.slip_mode_combo = slip_mode_combo
+        layout.addRow("Mode:", slip_mode_combo)
+
+        # Mock slip
+        mock_slip_spin = StyledSpinBox()
+        mock_slip_spin.setRange(-30.0, 30.0)
+        mock_slip_spin.setDecimals(1)
+        mock_slip_spin.setSingleStep(0.5)
+        mock_slip_spin.setSuffix("°")
+        mock_slip_spin.setValue(self._mock_slip)
+        mock_slip_spin.setToolTip("Manual slip angle (δ)")
+        mock_slip_spin.valueChanged.connect(self._on_mock_slip_changed)
+        self.mock_slip_spin = mock_slip_spin
+        self.mock_slip_label = create_subscript_label("δ", "2")
+        layout.addRow(self.mock_slip_label, mock_slip_spin)
+
+        self._update_mock_slip_visibility()
+
+    def _on_slip_mode_changed(self, mode: str):
+        self._slip_mode = mode
+        self._update_mock_slip_visibility()
+        self._emit_changed()
+
+    def _on_mock_slip_changed(self, value: float):
+        self._mock_slip = value
+        self._emit_changed()
+
+    def _update_mock_slip_visibility(self):
+        is_mock = self._slip_mode == "Mock"
+        self.mock_slip_spin.setVisible(is_mock)
+        self.mock_slip_label.setVisible(is_mock)
+
+    def _emit_changed(self):
+        self.slipSettingsChanged.emit({
+            'mode': self._slip_mode,
+            'mock_slip': self._mock_slip
+        })
+
+    def get_settings(self) -> dict:
+        return {'mode': self._slip_mode, 'mock_slip': self._mock_slip}
+
+    def set_settings(self, mode: str, mock_slip: float):
+        self._slip_mode = mode
+        self._mock_slip = mock_slip
+        self.slip_mode_combo.setCurrentText(mode)
+        self.mock_slip_spin.setValue(mock_slip)
+        self._update_mock_slip_visibility()
+
+
+class BetaAngleTableWidget(QWidget):
+    """
+    Dynamic editable table for beta flow angles.
+    Rows = span positions (hub to tip), Columns = inlet/outlet.
+    Table resizes based on span count (2-10).
+    Units: degrees
+    """
+
+    betaAnglesChanged = Signal(dict)  # {'spans': [...], 'inlet': [...], 'outlet': [...]}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._span_count = 2  # Default: hub + tip only
+        self._inlet_angles = [25.0, 30.0]  # Hub, Tip
+        self._outlet_angles = [55.0, 60.0]  # Hub, Tip
         self._setup_ui()
         self._connect_signals()
 
@@ -296,19 +497,17 @@ class BetaAngleTableWidget(QWidget):
         layout.setSpacing(4)
 
         # Table with editable cells
-        self.table = QTableWidget(2, 2)
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(['β Inlet', 'β Outlet'])
-        self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
 
         # Disable scrollbars
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         # Stretch columns to fill width, fixed row heights
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setRowHeight(0, 28)
-        self.table.setRowHeight(1, 28)
 
         # No vertical size constraints - let it fit naturally
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -336,20 +535,81 @@ class BetaAngleTableWidget(QWidget):
             }
         """)
 
-        # Populate with editable text items
-        for row in range(2):
-            for col in range(2):
-                item = QTableWidgetItem()
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(row, col, item)
-
-        # Set initial values
-        self.table.item(0, 0).setText(f"{self._angles['beta_in_hub']:.1f}")
-        self.table.item(0, 1).setText(f"{self._angles['beta_out_hub']:.1f}")
-        self.table.item(1, 0).setText(f"{self._angles['beta_in_tip']:.1f}")
-        self.table.item(1, 1).setText(f"{self._angles['beta_out_tip']:.1f}")
-
         layout.addWidget(self.table)
+
+        # Build table with current span count
+        self._rebuild_table()
+
+    def _rebuild_table(self):
+        """Rebuild table with current span count."""
+        self.table.blockSignals(True)
+
+        # Set row count based on span count
+        self.table.setRowCount(self._span_count)
+
+        # Update row labels
+        row_labels = []
+        if self._span_count == 2:
+            row_labels = ['Hub', 'Tip']
+        else:
+            row_labels = ['Hub']
+            for i in range(1, self._span_count - 1):
+                span_pct = int((i / (self._span_count - 1)) * 100)
+                row_labels.append(f'{span_pct}%')
+            row_labels.append('Tip')
+
+        self.table.setVerticalHeaderLabels(row_labels)
+
+        # Resize angle arrays if needed
+        if len(self._inlet_angles) != self._span_count:
+            self._resize_angle_arrays()
+
+        # Populate cells
+        for row in range(self._span_count):
+            for col in range(2):
+                # Get or create item
+                item = self.table.item(row, col)
+                if item is None:
+                    item = QTableWidgetItem()
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.table.setItem(row, col, item)
+
+                # Set value
+                if col == 0:  # Inlet
+                    item.setText(f"{self._inlet_angles[row]:.1f}")
+                else:  # Outlet
+                    item.setText(f"{self._outlet_angles[row]:.1f}")
+
+            # Set row height
+            self.table.setRowHeight(row, 28)
+
+        self.table.blockSignals(False)
+
+    def _resize_angle_arrays(self):
+        """Resize inlet/outlet angle arrays and interpolate intermediate values."""
+        old_count = len(self._inlet_angles)
+        new_count = self._span_count
+
+        if new_count < old_count:
+            # Reduce: keep hub and tip, discard middle
+            self._inlet_angles = [self._inlet_angles[0], self._inlet_angles[-1]]
+            self._outlet_angles = [self._outlet_angles[0], self._outlet_angles[-1]]
+
+        if new_count > len(self._inlet_angles):
+            # Expand: interpolate between hub and tip
+            hub_inlet = self._inlet_angles[0]
+            tip_inlet = self._inlet_angles[-1]
+            hub_outlet = self._outlet_angles[0]
+            tip_outlet = self._outlet_angles[-1]
+
+            self._inlet_angles = [
+                hub_inlet + (i / (new_count - 1)) * (tip_inlet - hub_inlet)
+                for i in range(new_count)
+            ]
+            self._outlet_angles = [
+                hub_outlet + (i / (new_count - 1)) * (tip_outlet - hub_outlet)
+                for i in range(new_count)
+            ]
 
     def _connect_signals(self):
         """Connect table itemChanged signal."""
@@ -362,18 +622,14 @@ class BetaAngleTableWidget(QWidget):
             # Clamp to reasonable range
             value = max(0.0, min(value, 90.0))
 
-            # Update internal angles dict
+            # Update internal angles array
             row = item.row()
             col = item.column()
 
-            if row == 0 and col == 0:
-                self._angles['beta_in_hub'] = value
-            elif row == 0 and col == 1:
-                self._angles['beta_out_hub'] = value
-            elif row == 1 and col == 0:
-                self._angles['beta_in_tip'] = value
-            elif row == 1 and col == 1:
-                self._angles['beta_out_tip'] = value
+            if col == 0:  # Inlet
+                self._inlet_angles[row] = value
+            else:  # Outlet
+                self._outlet_angles[row] = value
 
             # Update display with formatted value
             self.table.blockSignals(True)
@@ -381,36 +637,52 @@ class BetaAngleTableWidget(QWidget):
             self.table.blockSignals(False)
 
             # Emit change signal
-            self.betaAnglesChanged.emit(self._angles.copy())
+            self._emit_angles_changed()
 
         except ValueError:
             # Invalid input, revert to previous value
             self.table.blockSignals(True)
-            if item.row() == 0 and item.column() == 0:
-                item.setText(f"{self._angles['beta_in_hub']:.1f}")
-            elif item.row() == 0 and item.column() == 1:
-                item.setText(f"{self._angles['beta_out_hub']:.1f}")
-            elif item.row() == 1 and item.column() == 0:
-                item.setText(f"{self._angles['beta_in_tip']:.1f}")
-            elif item.row() == 1 and item.column() == 1:
-                item.setText(f"{self._angles['beta_out_tip']:.1f}")
+            if col == 0:
+                item.setText(f"{self._inlet_angles[row]:.1f}")
+            else:
+                item.setText(f"{self._outlet_angles[row]:.1f}")
             self.table.blockSignals(False)
+
+    def _emit_angles_changed(self):
+        """Emit signal with current angles data."""
+        spans = [i / (self._span_count - 1) for i in range(self._span_count)]
+        self.betaAnglesChanged.emit({
+            'spans': spans,
+            'inlet': self._inlet_angles.copy(),
+            'outlet': self._outlet_angles.copy()
+        })
+
+    def set_span_count(self, count: int):
+        """Set number of span positions and rebuild table."""
+        count = max(2, min(10, count))
+        if count != self._span_count:
+            self._span_count = count
+            self._rebuild_table()
+            self._emit_angles_changed()
 
     def get_angles(self) -> dict:
         """Get current beta angles."""
-        return self._angles.copy()
+        spans = [i / (self._span_count - 1) for i in range(self._span_count)]
+        return {
+            'spans': spans,
+            'inlet': self._inlet_angles.copy(),
+            'outlet': self._outlet_angles.copy()
+        }
 
-    def set_angles(self, angles: dict):
+    def set_angles(self, inlet_angles: list, outlet_angles: list):
         """Set beta angles values."""
-        self._angles = angles.copy()
-        self.table.blockSignals(True)
+        if len(inlet_angles) != len(outlet_angles):
+            return
 
-        self.table.item(0, 0).setText(f"{angles.get('beta_in_hub', 25.0):.1f}")
-        self.table.item(0, 1).setText(f"{angles.get('beta_out_hub', 55.0):.1f}")
-        self.table.item(1, 0).setText(f"{angles.get('beta_in_tip', 30.0):.1f}")
-        self.table.item(1, 1).setText(f"{angles.get('beta_out_tip', 60.0):.1f}")
-
-        self.table.blockSignals(False)
+        self._span_count = len(inlet_angles)
+        self._inlet_angles = inlet_angles.copy()
+        self._outlet_angles = outlet_angles.copy()
+        self._rebuild_table()
 
 
 class BladeInputsWidget(QWidget):
