@@ -56,6 +56,11 @@
 - **Risks/edge cases**: Hard minimum sizes could reduce flexibility on small screens.
 - **Minimal test plan**: `pytest -k "project_save_load_smoke or core_logic_runs_headless"`.
 
+#### PR-1 applied status (current branch)
+- Splitters made non-collapsible; minimum sizes added for the right panel and 3D list; handle widths unified.
+- 3D refresh now deferred while hidden and re-applied on re-show.
+- Diagram widget Matplotlib import simplified to avoid unused pyplot usage.
+
 ### PR-2: Interaction consistency
 - **Files**: `design_tab.py`, `diagram_widget.py`, `step_e_export.py`
 - **Steps**:
