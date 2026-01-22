@@ -9,7 +9,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QComboBox, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
@@ -27,6 +27,10 @@ class AnalysisPlotWidget(QWidget):
         super().__init__(parent)
         self.design = design
         self._current_plot = 0
+        self._update_timer = QTimer(self)
+        self._update_timer.setSingleShot(True)
+        self._update_timer.setInterval(75)
+        self._update_timer.timeout.connect(self.update_plot)
         self._setup_ui()
         self.update_plot()
     
@@ -71,7 +75,13 @@ class AnalysisPlotWidget(QWidget):
     def _on_plot_type_changed(self, index: int):
         """Handle plot type selection change."""
         self._current_plot = index
-        self.update_plot()
+        self.request_update()
+
+    def request_update(self):
+        """Throttle plot redraws to avoid excessive recomputation."""
+        if self._update_timer.isActive():
+            self._update_timer.stop()
+        self._update_timer.start()
     
     def update_plot(self):
         """Update the current plot with latest geometry."""
@@ -125,4 +135,4 @@ class AnalysisPlotWidget(QWidget):
     def set_design(self, design: InducerDesign):
         """Update with new design."""
         self.design = design
-        self.update_plot()
+        self.request_update()

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
     QSizePolicy
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QTimer
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -27,6 +27,10 @@ class BladeAnalysisPlotWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._data = {}
+        self._update_timer = QTimer(self)
+        self._update_timer.setSingleShot(True)
+        self._update_timer.setInterval(75)
+        self._update_timer.timeout.connect(self._redraw_from_state)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -113,14 +117,7 @@ class BladeAnalysisPlotWidget(QWidget):
 
     def _on_plot_type_changed(self, plot_type):
         """Handle plot type change."""
-        if plot_type == "Beta Distribution (Inlet/Outlet)":
-            self._plot_beta_distribution()
-        elif plot_type == "Slip Angle vs Span":
-            self._plot_slip_vs_span()
-        elif plot_type == "Incidence Angle vs Span":
-            self._plot_incidence_vs_span()
-        elif plot_type == "Flow vs Blocked vs Blade Beta":
-            self._plot_beta_comparison()
+        self._schedule_update()
 
     def _on_fit_clicked(self):
         """Fit plot to data."""
@@ -146,7 +143,25 @@ class BladeAnalysisPlotWidget(QWidget):
         }
         """
         self._data = data
-        self._on_plot_type_changed(self.plot_selector.currentText())
+        self._schedule_update()
+
+    def _schedule_update(self):
+        """Throttle plot redraws to avoid excessive recomputation."""
+        if self._update_timer.isActive():
+            self._update_timer.stop()
+        self._update_timer.start()
+
+    def _redraw_from_state(self):
+        """Redraw based on the current plot selector."""
+        plot_type = self.plot_selector.currentText()
+        if plot_type == "Beta Distribution (Inlet/Outlet)":
+            self._plot_beta_distribution()
+        elif plot_type == "Slip Angle vs Span":
+            self._plot_slip_vs_span()
+        elif plot_type == "Incidence Angle vs Span":
+            self._plot_incidence_vs_span()
+        elif plot_type == "Flow vs Blocked vs Blade Beta":
+            self._plot_beta_comparison()
 
     def _plot_beta_distribution(self):
         """Plot beta distribution along span for inlet and outlet."""

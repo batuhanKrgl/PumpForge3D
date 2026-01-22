@@ -79,6 +79,9 @@
 - **Risks/edge cases**: Thread safety with Qt; ensure UI updates happen on main thread.
 - **Minimal test plan**: manual performance pass + `pytest`.
 
+#### PR-3 applied status (current branch)
+- Throttled redraws in analysis plot widgets to reduce repeated Matplotlib work on rapid updates.
+
 ### PR-4: UX workflow foundations
 - **Files**: `main_window.py`, new `workflow_state.py`, `undo_commands.py`
 - **Steps**:

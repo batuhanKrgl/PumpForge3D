@@ -691,7 +691,10 @@ class DesignTab(QWidget):
     def _update_analysis_plots(self):
         """Update analysis plots with current geometry."""
         if hasattr(self, 'analysis_widget'):
-            self.analysis_widget.update_plot()
+            if hasattr(self.analysis_widget, 'request_update'):
+                self.analysis_widget.request_update()
+            else:
+                self.analysis_widget.update_plot()
     
     # Toolbar callbacks
     def _fit_view(self):
