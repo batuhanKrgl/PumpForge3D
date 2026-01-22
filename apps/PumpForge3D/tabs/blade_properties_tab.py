@@ -331,6 +331,7 @@ class BladePropertiesTab(QWidget):
         # Vertical splitter for plots (top) and details (bottom)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
+        splitter.setChildrenCollapsible(False)
 
         # === Analysis Plots (top) ===
         plots_widget = QWidget()

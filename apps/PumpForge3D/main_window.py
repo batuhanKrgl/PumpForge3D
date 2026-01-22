@@ -11,7 +11,7 @@ Provides the application shell with:
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QSplitter, QStatusBar, QMessageBox,
-    QToolBar, QApplication
+    QToolBar, QApplication, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
@@ -276,9 +276,13 @@ class MainWindow(QMainWindow):
         
         # Main horizontal splitter: [Tabs] | [3D + Objects]
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(4)
         
         # LEFT SIDE: Tab widget
         self.tab_widget = QTabWidget()
+        self.tab_widget.setMinimumWidth(520)
+        self.tab_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
         # Design tab
         self.design_tab = DesignTab(self.design, undo_stack=self.undo_stack)
@@ -296,13 +300,18 @@ class MainWindow(QMainWindow):
         
         # RIGHT SIDE: 3D Viewer + Object list (vertical splitter)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.setChildrenCollapsible(False)
+        right_splitter.setHandleWidth(4)
+        right_splitter.setMinimumWidth(320)
         
         # 3D Viewer
         self.viewer_3d = Viewer3DWidget(self.design)
+        self.viewer_3d.setMinimumHeight(320)
         right_splitter.addWidget(self.viewer_3d)
         
         # Object visibility list
         self.object_list = ObjectVisibilityList()
+        self.object_list.setMinimumHeight(160)
         right_splitter.addWidget(self.object_list)
         
         # Set right splitter proportions (80% viewer, 20% list)
@@ -322,6 +331,7 @@ class MainWindow(QMainWindow):
 
         # Store initial 3D viewer size for restoration
         self._viewer_size_before_hide = 400
+        self._viewer_needs_refresh = False
 
         main_layout.addWidget(self.main_splitter)
         
@@ -438,15 +448,21 @@ class MainWindow(QMainWindow):
     
     def _on_geometry_changed(self):
         """Handle geometry change from design tab."""
-        # Update 3D viewer
-        self.viewer_3d.update_geometry(self.design)
+        # Update 3D viewer only when visible
+        if self.right_splitter.isVisible():
+            self.viewer_3d.update_geometry(self.design)
+        else:
+            self._viewer_needs_refresh = True
         self.status_bar.showMessage("Geometry updated")
         self.design_changed.emit()
     
     def _on_dimensions_changed(self):
         """Handle main dimensions change."""
-        # Update 3D viewer
-        self.viewer_3d.update_geometry(self.design)
+        # Update 3D viewer only when visible
+        if self.right_splitter.isVisible():
+            self.viewer_3d.update_geometry(self.design)
+        else:
+            self._viewer_needs_refresh = True
         self.status_bar.showMessage("Dimensions updated")
         self.design_changed.emit()
     
@@ -493,6 +509,9 @@ class MainWindow(QMainWindow):
                 total_width = self.main_splitter.width()
                 tab_width = total_width - self._viewer_size_before_hide
                 self.main_splitter.setSizes([tab_width, self._viewer_size_before_hide])
+                if self._viewer_needs_refresh:
+                    self.viewer_3d.update_geometry(self.design)
+                    self._viewer_needs_refresh = False
 
             if 0 <= index < len(tab_names):
                 self.status_bar.showMessage(f"{tab_names[index]} tab")
