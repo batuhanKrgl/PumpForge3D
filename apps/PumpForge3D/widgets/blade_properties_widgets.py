@@ -48,11 +48,23 @@ class StyledSpinBox(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        # Minus button
+        # Minus button - larger for better touch target
         self.minus_btn = QToolButton()
         self.minus_btn.setText("−")
-        self.minus_btn.setFixedSize(20, 24)
+        self.minus_btn.setFixedSize(26, 28)
         self.minus_btn.setAutoRepeat(True)
+        self.minus_btn.setStyleSheet("""
+            QToolButton {
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QToolButton:hover { background-color: #45475a; }
+            QToolButton:pressed { background-color: #585b70; }
+        """)
         self.minus_btn.clicked.connect(self._decrement)
         layout.addWidget(self.minus_btn)
 
@@ -64,11 +76,23 @@ class StyledSpinBox(QWidget):
         self.spinbox.editingFinished.connect(self.editingFinished.emit)
         layout.addWidget(self.spinbox)
 
-        # Plus button
+        # Plus button - larger for better touch target
         self.plus_btn = QToolButton()
         self.plus_btn.setText("+")
-        self.plus_btn.setFixedSize(20, 24)
+        self.plus_btn.setFixedSize(26, 28)
         self.plus_btn.setAutoRepeat(True)
+        self.plus_btn.setStyleSheet("""
+            QToolButton {
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QToolButton:hover { background-color: #45475a; }
+            QToolButton:pressed { background-color: #585b70; }
+        """)
         self.plus_btn.clicked.connect(self._increment)
         layout.addWidget(self.plus_btn)
 
@@ -139,26 +163,33 @@ class BladeThicknessMatrixWidget(QWidget):
         # No vertical size constraints - let it fit naturally
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        # Style
+        # Style with hover effects and better fonts
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #1e1e2e;
                 color: #cdd6f4;
                 gridline-color: #45475a;
                 border: 1px solid #45475a;
-                font-size: 10px;
+                border-radius: 4px;
+                font-size: 11px;
             }
             QTableWidget::item {
-                padding: 4px;
+                padding: 6px;
                 text-align: center;
+            }
+            QTableWidget::item:hover {
+                background-color: #313244;
+            }
+            QTableWidget::item:selected {
+                background-color: #45475a;
             }
             QHeaderView::section {
                 background-color: #313244;
                 color: #cdd6f4;
-                padding: 4px;
+                padding: 6px;
                 border: 1px solid #45475a;
                 font-weight: bold;
-                font-size: 9px;
+                font-size: 10px;
             }
         """)
 
@@ -272,6 +303,7 @@ class BladeInputsWidget(QWidget):
         blade_count_spin.setDecimals(0)
         blade_count_spin.setSingleStep(1)
         blade_count_spin.setValue(self._blade_count)
+        blade_count_spin.setToolTip("Number of blades (typically 5-7 for pumps)")
         self.blade_count_spin = blade_count_spin
         layout.addRow("z:", blade_count_spin)
 
@@ -282,6 +314,7 @@ class BladeInputsWidget(QWidget):
         incidence_spin.setSingleStep(0.5)
         incidence_spin.setSuffix("°")
         incidence_spin.setValue(self._incidence)
+        incidence_spin.setToolTip("Incidence angle: β₁ - βB₁ (flow angle - blade angle)")
         self.incidence_spin = incidence_spin
         layout.addRow(create_subscript_label("i", "1"), incidence_spin)
 
@@ -289,15 +322,18 @@ class BladeInputsWidget(QWidget):
         slip_mode_combo = QComboBox()
         slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
         slip_mode_combo.setCurrentText(self._slip_mode)
-        slip_mode_combo.setFixedWidth(122)  # Match StyledSpinBox total width
+        slip_mode_combo.setFixedWidth(134)  # Match StyledSpinBox total width
+        slip_mode_combo.setToolTip("Slip calculation method:\n• Mock: Manual slip angle\n• Wiesner: Empirical formula\n• Gülich: CFturbo recommended")
         slip_mode_combo.setStyleSheet("""
             QComboBox {
                 background-color: #313244;
                 color: #cdd6f4;
                 border: 1px solid #45475a;
-                padding: 3px;
-                font-size: 10px;
+                padding: 4px 6px;
+                font-size: 11px;
+                border-radius: 4px;
             }
+            QComboBox:hover { background-color: #45475a; }
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView {
                 background-color: #313244;
@@ -306,7 +342,7 @@ class BladeInputsWidget(QWidget):
             }
         """)
         self.slip_mode_combo = slip_mode_combo
-        layout.addRow("Slip mode:", slip_mode_combo)
+        layout.addRow("Slip:", slip_mode_combo)
 
         # Mock slip δ (degrees, conditional)
         mock_slip_spin = StyledSpinBox()
@@ -315,8 +351,10 @@ class BladeInputsWidget(QWidget):
         mock_slip_spin.setSingleStep(0.5)
         mock_slip_spin.setSuffix("°")
         mock_slip_spin.setValue(self._mock_slip)
+        mock_slip_spin.setToolTip("Manual slip angle (δ): deviation from blade angle at outlet")
         self.mock_slip_spin = mock_slip_spin
         self.mock_slip_label = QLabel("δ:")
+        self.mock_slip_label.setToolTip("Slip angle (manual value)")
         layout.addRow(self.mock_slip_label, mock_slip_spin)
 
         self._update_mock_slip_visibility()

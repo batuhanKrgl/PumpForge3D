@@ -338,10 +338,6 @@ class BladePropertiesTab(QWidget):
         plots_layout.setContentsMargins(4, 4, 4, 4)
         plots_layout.setSpacing(4)
 
-        plots_label = QLabel("Analysis Plots")
-        plots_label.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 10px; padding: 4px;")
-        plots_layout.addWidget(plots_label)
-
         self.analysis_plots = BladeAnalysisPlotWidget()
         plots_layout.addWidget(self.analysis_plots)
 
@@ -352,10 +348,6 @@ class BladePropertiesTab(QWidget):
         details_layout = QVBoxLayout(details_widget)
         details_layout.setContentsMargins(4, 4, 4, 4)
         details_layout.setSpacing(4)
-
-        details_label = QLabel("Triangle Details")
-        details_label.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 10px; padding: 4px;")
-        details_layout.addWidget(details_label)
 
         self.triangle_details = TriangleDetailsWidget()
         details_layout.addWidget(self.triangle_details)
