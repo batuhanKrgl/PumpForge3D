@@ -94,3 +94,24 @@
 - Main window resizing keeps diagram and plots visible.
 - Heavy operations do not freeze the UI or clearly indicate progress.
 - Export/import flows present clear error messages and persist last-used paths.
+
+## Implementation notes & code hotspots
+### Interaction consistency (PR-2) — concrete targets
+- **Debounce dimension edits**: wrap `DesignTab._apply_dimensions` calls with a short `QTimer` (150–250ms) and trigger on `editingFinished` for the styled spinboxes.
+- **Hover redraw throttle**: in `DiagramWidget._on_mouse_move`, gate `update_plot()` with a timestamp or a `QTimer.singleShot` to cap redraws at ~30–60 FPS.
+- **Dialog patterns**: replace the non-modal parameter window in `BladePropertiesTab` with a `QDialog` featuring Apply/OK/Cancel and persist its state via `QSettings`.
+
+### Performance (PR-3) — concrete targets
+- **Matplotlib**: cache sampled data in `AnalysisPlotWidget.update_plot` and only recompute when the underlying geometry changes, not on every UI event.
+- **3D view**: consider sampling density adjustment or lazy rendering in `Viewer3DWidget.update_geometry` when the model is unchanged.
+- **Background workers**: use `QThread` or `QtConcurrent` for geometry calculations and feed results back to the UI thread via signals.
+
+### UX workflow (PR-4) — concrete targets
+- **Workflow gate**: introduce a lightweight state machine to expose “next step” and blockers in the status bar.
+- **Undo/redo scope**: extend `undo_commands.py` to cover edge-mode changes, anchor moves, and validation toggles.
+- **Recent projects**: store a bounded list in `QSettings`, display in File menu with missing-file recovery prompt.
+
+## Open questions
+- Should the 3D view remain hidden on Blade Properties by default, or should it be user-toggled?
+- Do we want “live update” for geometry changes, or an explicit Apply step for heavy computations?
+- Are there target hardware constraints (GPU availability) that should cap rendering fidelity?
