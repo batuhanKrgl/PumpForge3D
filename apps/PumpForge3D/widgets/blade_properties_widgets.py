@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QSpinBox,
     QDoubleSpinBox, QComboBox, QFrame, QTextEdit, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QSizePolicy, QToolButton, QAbstractSpinBox, QGridLayout
+    QPushButton, QSizePolicy, QToolButton, QAbstractSpinBox, QGridLayout, QCheckBox
 )
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
 
 from pumpforge3d_core.analysis.blade_properties import (
     BladeThicknessMatrix, SlipCalculationResult, calculate_slip
@@ -125,10 +125,265 @@ class StyledSpinBox(QWidget):
         return self.spinbox.blockSignals(block)
 
 
+class FlowAngleTableWidget(QWidget):
+    """
+    Flow angle input table (beta_in, beta_out) with dynamic row count.
+
+    Matches the beta_editor_widget.py table styling.
+    Rows correspond to span positions (Hub → intermediate spans → Tip).
+    """
+
+    anglesChanged = Signal(list, list)  # (beta_in_list, beta_out_list)
+    spanCountChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._span_count = 3
+        self._beta_in = [30.0, 32.5, 35.0]
+        self._beta_out = [55.0, 57.5, 60.0]
+        self._linear_inlet = False
+        self._linear_outlet = False
+        self._updating = False
+        self._setup_ui()
+        self._connect_signals()
+        self._load_data()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # Span count row
+        span_row = QHBoxLayout()
+        span_row.addWidget(QLabel("Spans:"))
+        self.span_spin = QSpinBox()
+        self.span_spin.setRange(2, 20)
+        self.span_spin.setValue(self._span_count)
+        self.span_spin.setFixedWidth(60)
+        span_row.addWidget(self.span_spin)
+        span_row.addStretch()
+        layout.addLayout(span_row)
+
+        # Linear mode toggles
+        linear_row = QHBoxLayout()
+        self.linear_inlet_check = QCheckBox("Linear Inlet")
+        self.linear_inlet_check.setToolTip("Hub/Tip only editable, intermediate spans interpolated")
+        linear_row.addWidget(self.linear_inlet_check)
+        self.linear_outlet_check = QCheckBox("Linear Outlet")
+        self.linear_outlet_check.setToolTip("Hub/Tip only editable, intermediate spans interpolated")
+        linear_row.addWidget(self.linear_outlet_check)
+        layout.addLayout(linear_row)
+
+        # Beta table - beta editor style
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["β_in (°)", "β_out (°)"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Disable scrollbars for compact display
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.table.setMinimumWidth(180)
+        self.table.setMaximumWidth(280)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        # Beta editor style
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #181825;
+                color: #cdd6f4;
+                gridline-color: #313244;
+                border: 1px solid #313244;
+                font-size: 11px;
+            }
+            QTableWidget::item {
+                padding: 4px;
+                text-align: center;
+            }
+            QTableWidget::item:hover {
+                background-color: #313244;
+            }
+            QTableWidget::item:selected {
+                background-color: #45475a;
+            }
+            QHeaderView::section {
+                background-color: #313244;
+                color: #cdd6f4;
+                padding: 4px;
+                border: none;
+                font-weight: bold;
+            }
+        """)
+
+        layout.addWidget(self.table, 1)
+
+    def _connect_signals(self):
+        self.span_spin.valueChanged.connect(self._on_span_count_changed)
+        self.table.cellChanged.connect(self._on_cell_changed)
+        self.linear_inlet_check.toggled.connect(self._on_linear_inlet_toggled)
+        self.linear_outlet_check.toggled.connect(self._on_linear_outlet_toggled)
+
+    def _load_data(self):
+        """Load data into table."""
+        self._updating = True
+
+        self.table.setRowCount(self._span_count)
+        for i in range(self._span_count):
+            # Beta in
+            item_in = QTableWidgetItem(f"{self._beta_in[i]:.1f}")
+            item_in.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 0, item_in)
+
+            # Beta out
+            item_out = QTableWidgetItem(f"{self._beta_out[i]:.1f}")
+            item_out.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 1, item_out)
+
+            # Row header
+            label = "Hub" if i == 0 else ("Tip" if i == self._span_count - 1 else f"S{i}")
+            self.table.setVerticalHeaderItem(i, QTableWidgetItem(label))
+
+            # Set row height
+            self.table.setRowHeight(i, 26)
+
+        self._update_cell_states()
+        self._updating = False
+
+    def _update_cell_states(self):
+        """Enable/disable cells based on linear mode."""
+        for i in range(self._span_count):
+            is_hub_or_tip = (i == 0 or i == self._span_count - 1)
+
+            # Inlet column
+            item_in = self.table.item(i, 0)
+            if item_in:
+                if self._linear_inlet and not is_hub_or_tip:
+                    item_in.setFlags(item_in.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item_in.setBackground(QColor('#313244'))
+                else:
+                    item_in.setFlags(item_in.flags() | Qt.ItemFlag.ItemIsEditable)
+                    item_in.setBackground(QColor('#181825'))
+
+            # Outlet column
+            item_out = self.table.item(i, 1)
+            if item_out:
+                if self._linear_outlet and not is_hub_or_tip:
+                    item_out.setFlags(item_out.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item_out.setBackground(QColor('#313244'))
+                else:
+                    item_out.setFlags(item_out.flags() | Qt.ItemFlag.ItemIsEditable)
+                    item_out.setBackground(QColor('#181825'))
+
+    def _apply_linear_interpolation(self):
+        """Apply linear interpolation for intermediate spans."""
+        if self._span_count < 3:
+            return
+
+        if self._linear_inlet:
+            hub_val = self._beta_in[0]
+            tip_val = self._beta_in[-1]
+            for i in range(1, self._span_count - 1):
+                t = i / (self._span_count - 1)
+                self._beta_in[i] = hub_val + t * (tip_val - hub_val)
+
+        if self._linear_outlet:
+            hub_val = self._beta_out[0]
+            tip_val = self._beta_out[-1]
+            for i in range(1, self._span_count - 1):
+                t = i / (self._span_count - 1)
+                self._beta_out[i] = hub_val + t * (tip_val - hub_val)
+
+    def _on_span_count_changed(self, value: int):
+        """Handle span count change."""
+        old_count = self._span_count
+        self._span_count = value
+
+        # Resize arrays
+        if value > old_count:
+            # Add interpolated values
+            for _ in range(value - old_count):
+                self._beta_in.append(self._beta_in[-1])
+                self._beta_out.append(self._beta_out[-1])
+        else:
+            # Trim arrays
+            self._beta_in = self._beta_in[:value]
+            self._beta_out = self._beta_out[:value]
+
+        self._apply_linear_interpolation()
+        self._load_data()
+        self.spanCountChanged.emit(value)
+        self.anglesChanged.emit(self._beta_in.copy(), self._beta_out.copy())
+
+    def _on_cell_changed(self, row: int, col: int):
+        """Handle cell edit."""
+        if self._updating:
+            return
+
+        item = self.table.item(row, col)
+        if not item:
+            return
+
+        try:
+            value = float(item.text())
+        except ValueError:
+            self._load_data()
+            return
+
+        self._updating = True
+        if col == 0:
+            self._beta_in[row] = value
+            if self._linear_inlet:
+                self._apply_linear_interpolation()
+        else:
+            self._beta_out[row] = value
+            if self._linear_outlet:
+                self._apply_linear_interpolation()
+        self._updating = False
+
+        self._load_data()
+        self.anglesChanged.emit(self._beta_in.copy(), self._beta_out.copy())
+
+    def _on_linear_inlet_toggled(self, checked: bool):
+        """Handle linear inlet toggle."""
+        self._linear_inlet = checked
+        if checked:
+            self._apply_linear_interpolation()
+        self._load_data()
+        self.anglesChanged.emit(self._beta_in.copy(), self._beta_out.copy())
+
+    def _on_linear_outlet_toggled(self, checked: bool):
+        """Handle linear outlet toggle."""
+        self._linear_outlet = checked
+        if checked:
+            self._apply_linear_interpolation()
+        self._load_data()
+        self.anglesChanged.emit(self._beta_in.copy(), self._beta_out.copy())
+
+    def get_angles(self):
+        """Get current angle arrays."""
+        return self._beta_in.copy(), self._beta_out.copy()
+
+    def set_angles(self, beta_in: list, beta_out: list):
+        """Set angle arrays."""
+        self._span_count = len(beta_in)
+        self._beta_in = beta_in.copy()
+        self._beta_out = beta_out.copy()
+        self.span_spin.blockSignals(True)
+        self.span_spin.setValue(self._span_count)
+        self.span_spin.blockSignals(False)
+        self._load_data()
+
+    def get_span_count(self) -> int:
+        """Get current span count."""
+        return self._span_count
+
+
 class BladeThicknessMatrixWidget(QWidget):
     """
     Compact 2×2 table for blade thickness input (hub/tip × inlet/outlet).
 
+    Uses beta editor table styling for consistency.
     Units: mm
     """
 
@@ -157,24 +412,23 @@ class BladeThicknessMatrixWidget(QWidget):
         # Stretch columns to fill width, fixed row heights
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.setRowHeight(0, 28)
-        self.table.setRowHeight(1, 28)
+        self.table.setRowHeight(0, 26)
+        self.table.setRowHeight(1, 26)
 
         # No vertical size constraints - let it fit naturally
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        # Style with hover effects and better fonts
+        # Beta editor style (matching FlowAngleTableWidget)
         self.table.setStyleSheet("""
             QTableWidget {
-                background-color: #1e1e2e;
+                background-color: #181825;
                 color: #cdd6f4;
-                gridline-color: #45475a;
-                border: 1px solid #45475a;
-                border-radius: 4px;
+                gridline-color: #313244;
+                border: 1px solid #313244;
                 font-size: 11px;
             }
             QTableWidget::item {
-                padding: 6px;
+                padding: 4px;
                 text-align: center;
             }
             QTableWidget::item:hover {
@@ -186,10 +440,9 @@ class BladeThicknessMatrixWidget(QWidget):
             QHeaderView::section {
                 background-color: #313244;
                 color: #cdd6f4;
-                padding: 6px;
-                border: 1px solid #45475a;
+                padding: 4px;
+                border: none;
                 font-weight: bold;
-                font-size: 10px;
             }
         """)
 

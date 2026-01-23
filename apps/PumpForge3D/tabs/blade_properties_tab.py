@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, Signal
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
-    TriangleDetailsWidget
+    TriangleDetailsWidget, FlowAngleTableWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
@@ -153,7 +153,7 @@ class BladePropertiesTab(QWidget):
         main_layout.addWidget(self.main_splitter)
 
     def _create_left_panel(self) -> QWidget:
-        """Create left input panel with collapsible groups."""
+        """Create left input panel with reorganized groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
         panel.setMinimumWidth(280)
@@ -197,21 +197,92 @@ class BladePropertiesTab(QWidget):
         scroll_layout.setContentsMargins(6, 6, 6, 6)
         scroll_layout.setSpacing(8)
 
-        # === 1. Blade Thickness Group (collapsible) ===
-        thickness_group = CollapsibleSection("Blade Thickness")
-
-        self.thickness_widget = BladeThicknessMatrixWidget()
-        thickness_group.addWidget(self.thickness_widget)
-
-        scroll_layout.addWidget(thickness_group)
-
-        # === 2. Blade Parameters Group (collapsible) ===
+        # === 1. Blade Parameters Group (at TOP) ===
         params_group = CollapsibleSection("Blade Parameters")
-
         self.blade_inputs_widget = BladeInputsWidget()
         params_group.addWidget(self.blade_inputs_widget)
-
         scroll_layout.addWidget(params_group)
+
+        # === 2. Incidence Group (separate) ===
+        incidence_group = CollapsibleSection("Incidence")
+        incidence_form = QFormLayout()
+        incidence_form.setSpacing(6)
+        incidence_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        from ..widgets.blade_properties_widgets import StyledSpinBox, create_subscript_label
+
+        self.incidence_hub_spin = StyledSpinBox()
+        self.incidence_hub_spin.setRange(-20.0, 20.0)
+        self.incidence_hub_spin.setDecimals(1)
+        self.incidence_hub_spin.setSuffix("°")
+        self.incidence_hub_spin.setValue(0.0)
+        self.incidence_hub_spin.setToolTip("Incidence at hub: i = β₁_blocked - β₁B")
+        incidence_form.addRow(create_subscript_label("i", "hub"), self.incidence_hub_spin)
+
+        self.incidence_tip_spin = StyledSpinBox()
+        self.incidence_tip_spin.setRange(-20.0, 20.0)
+        self.incidence_tip_spin.setDecimals(1)
+        self.incidence_tip_spin.setSuffix("°")
+        self.incidence_tip_spin.setValue(0.0)
+        self.incidence_tip_spin.setToolTip("Incidence at tip: i = β₁_blocked - β₁B")
+        incidence_form.addRow(create_subscript_label("i", "tip"), self.incidence_tip_spin)
+
+        incidence_widget = QWidget()
+        incidence_widget.setLayout(incidence_form)
+        incidence_group.addWidget(incidence_widget)
+        scroll_layout.addWidget(incidence_group)
+
+        # === 3. Slip Group (separate) ===
+        slip_group = CollapsibleSection("Slip")
+        slip_form = QFormLayout()
+        slip_form.setSpacing(6)
+        slip_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        from PySide6.QtWidgets import QComboBox
+
+        self.slip_mode_combo = QComboBox()
+        self.slip_mode_combo.addItems(["Mock", "Wiesner", "Gülich"])
+        self.slip_mode_combo.setFixedWidth(134)
+        self.slip_mode_combo.setToolTip("Slip calculation method")
+        self.slip_mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                padding: 4px 6px;
+                font-size: 11px;
+                border-radius: 4px;
+            }
+            QComboBox:hover { background-color: #45475a; }
+            QComboBox::drop-down { border: none; }
+        """)
+        slip_form.addRow("Mode:", self.slip_mode_combo)
+
+        self.mock_slip_spin = StyledSpinBox()
+        self.mock_slip_spin.setRange(-30.0, 30.0)
+        self.mock_slip_spin.setDecimals(1)
+        self.mock_slip_spin.setSuffix("°")
+        self.mock_slip_spin.setValue(5.0)
+        self.mock_slip_spin.setToolTip("Manual slip angle δ (for Mock mode)")
+        self.mock_slip_label = QLabel("δ:")
+        slip_form.addRow(self.mock_slip_label, self.mock_slip_spin)
+
+        slip_widget = QWidget()
+        slip_widget.setLayout(slip_form)
+        slip_group.addWidget(slip_widget)
+        scroll_layout.addWidget(slip_group)
+
+        # === 4. Flow Angle Table ===
+        flow_angle_group = CollapsibleSection("Flow Angles")
+        self.flow_angle_widget = FlowAngleTableWidget()
+        flow_angle_group.addWidget(self.flow_angle_widget)
+        scroll_layout.addWidget(flow_angle_group)
+
+        # === 5. Blade Thickness Group ===
+        thickness_group = CollapsibleSection("Blade Thickness")
+        self.thickness_widget = BladeThicknessMatrixWidget()
+        thickness_group.addWidget(self.thickness_widget)
+        scroll_layout.addWidget(thickness_group)
 
         scroll_layout.addStretch()
 
@@ -373,6 +444,16 @@ class BladePropertiesTab(QWidget):
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
 
+        # New separate incidence/slip widgets
+        self.incidence_hub_spin.valueChanged.connect(self._on_incidence_hub_changed)
+        self.incidence_tip_spin.valueChanged.connect(self._on_incidence_tip_changed)
+        self.slip_mode_combo.currentTextChanged.connect(self._on_slip_mode_combo_changed)
+        self.mock_slip_spin.valueChanged.connect(self._on_mock_slip_spin_changed)
+
+        # Flow angle table
+        self.flow_angle_widget.anglesChanged.connect(self._on_flow_angles_changed)
+        self.flow_angle_widget.spanCountChanged.connect(self._on_span_count_changed)
+
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
         self._blade_properties.thickness = thickness
@@ -399,6 +480,43 @@ class BladePropertiesTab(QWidget):
         """Handle mock slip value change."""
         self._blade_properties.mock_slip_deg = slip
         self._update_slip_calculation()
+
+    def _on_incidence_hub_changed(self, value):
+        """Handle hub incidence change."""
+        # Store as hub incidence
+        self._update_triangle_details()
+        self._update_analysis_plots()
+
+    def _on_incidence_tip_changed(self, value):
+        """Handle tip incidence change."""
+        # Store as tip incidence
+        self._update_triangle_details()
+        self._update_analysis_plots()
+
+    def _on_slip_mode_combo_changed(self, mode):
+        """Handle slip mode combo change."""
+        self._blade_properties.slip_mode = mode
+        # Show/hide mock slip input
+        is_mock = mode == "Mock"
+        self.mock_slip_spin.setVisible(is_mock)
+        self.mock_slip_label.setVisible(is_mock)
+        self._update_slip_calculation()
+
+    def _on_mock_slip_spin_changed(self, value):
+        """Handle mock slip spinbox change."""
+        self._blade_properties.mock_slip_deg = value
+        self._update_slip_calculation()
+
+    def _on_flow_angles_changed(self, beta_in: list, beta_out: list):
+        """Handle flow angle table change."""
+        # Update blade properties or triangle calculations with new angles
+        self._update_triangle_details()
+        self._update_analysis_plots()
+
+    def _on_span_count_changed(self, count: int):
+        """Handle span count change from flow angle table."""
+        # Update any span-dependent calculations
+        self._update_all()
 
     def _on_triangle_inputs_changed(self):
         """Handle velocity triangle input changes."""
