@@ -11,6 +11,8 @@ Reorganized layout (UI/UX fix):
 Based on CFturbo manual section 7.3.1.4 (Velocity Triangles) and 7.3.1.4.2.1 (Slip by Gülich/Wiesner).
 """
 
+import math
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
     QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy,
@@ -27,11 +29,11 @@ from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
 
 from pumpforge3d_core.analysis.blade_properties import (
-    BladeProperties, calculate_slip, calculate_cu_slipped
+    BladeProperties, calculate_slip
 )
-from pumpforge3d_core.analysis.velocity_triangle import (
-    compute_triangle, compute_derived_triangle
-)
+from ..app.state.app_state import AppState
+
+from core.velocity_triangles import InletTriangle, OutletTriangle
 
 
 class CollapsibleSection(QWidget):
@@ -100,8 +102,9 @@ class BladePropertiesTab(QWidget):
     # Signals
     propertiesChanged = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, app_state: AppState | None = None):
         super().__init__(parent)
+        self._state = app_state or AppState.create_default()
 
         # Initialize blade properties
         self._blade_properties = BladeProperties(
@@ -118,6 +121,7 @@ class BladePropertiesTab(QWidget):
 
         self._setup_ui()
         self._connect_signals()
+        self._seed_triangles_from_state()
         self._update_all()
 
     def _setup_ui(self):
@@ -373,6 +377,19 @@ class BladePropertiesTab(QWidget):
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
 
+    def _seed_triangles_from_state(self):
+        """Seed the triangle widget with default core model data."""
+        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+        self.triangle_widget.set_triangles(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
+
+    def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
+        inducer = self._state.inducer
+        inlet_hub = inducer.make_inlet_triangle(inducer.r_in_hub)
+        inlet_tip = inducer.make_inlet_triangle(inducer.r_in_tip)
+        outlet_hub = inducer.make_outlet_triangle(inducer.r_out_hub)
+        outlet_tip = inducer.make_outlet_triangle(inducer.r_out_tip)
+        return inlet_hub, inlet_tip, outlet_hub, outlet_tip
+
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
         self._blade_properties.thickness = thickness
@@ -452,87 +469,70 @@ class BladePropertiesTab(QWidget):
 
     def _update_triangle_details(self):
         """Update detailed triangle information display."""
-        # Create sample triangle data dict
-        # In full implementation, this would compute from actual triangle widget data
+        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+
+        def _deg(value: float) -> float:
+            return value * 180.0 / math.pi
+
+        def _format_inlet(tri: InletTriangle) -> dict:
+            data = tri.to_dict()
+            return {
+                "u": data["u"],
+                "cu": data["cu"],
+                "cm": data["c_m"],
+                "c": data["c"],
+                "w": data["w"],
+                "alpha": _deg(data["alpha"]),
+                "beta": _deg(data["beta"]),
+                "cm_blocked": data["cm_blocked"],
+                "beta_blocked": _deg(data["beta_blocked"]),
+                "beta_blade": _deg(data["beta_blade"]),
+                "incidence": _deg(data["incidence"]),
+            }
+
+        def _format_outlet(tri: OutletTriangle) -> dict:
+            data = tri.to_dict()
+            return {
+                "u": data["u"],
+                "cu": data["cu"],
+                "cm": data["c_m"],
+                "c": data["c"],
+                "w": data["w"],
+                "alpha": _deg(data["alpha"]),
+                "beta": _deg(data["beta"]),
+                "cm_blocked": data["cm_blocked"],
+                "beta_blocked": _deg(data["beta_blocked"]),
+                "beta_blade": _deg(data["beta_blade"]),
+                "slip": _deg(data["slip"]),
+                "cu_slipped": data["cu_slipped"],
+            }
+
         triangle_data = {
-            'inlet_hub': {
-                'u': 15.7,
-                'cu': 0.0,
-                'cm': 5.0,
-                'c': 5.0,
-                'w': 16.5,
-                'alpha': 90.0,
-                'beta': 25.0,
-                'cm_blocked': 5.5,
-                'beta_blocked': 26.0,
-                'beta_blade': 30.0,
-                'incidence': self._blade_properties.incidence_deg,
-            },
-            'inlet_tip': {
-                'u': 26.2,
-                'cu': 0.0,
-                'cm': 5.0,
-                'c': 5.0,
-                'w': 26.7,
-                'alpha': 90.0,
-                'beta': 30.0,
-                'cm_blocked': 5.5,
-                'beta_blocked': 31.0,
-                'beta_blade': 35.0,
-                'incidence': self._blade_properties.incidence_deg,
-            },
-            'outlet_hub': {
-                'u': 20.9,
-                'cu': 18.0,
-                'cm': 4.0,
-                'c': 18.4,
-                'w': 4.3,
-                'alpha': 12.5,
-                'beta': 55.0,
-                'cm_blocked': 4.4,
-                'beta_blocked': 56.0,
-                'beta_blade': 60.0,
-                'slip': self._blade_properties.mock_slip_deg,
-                'cu_slipped': 17.0,
-            },
-            'outlet_tip': {
-                'u': 31.4,
-                'cu': 27.0,
-                'cm': 4.0,
-                'c': 27.3,
-                'w': 5.9,
-                'alpha': 8.4,
-                'beta': 60.0,
-                'cm_blocked': 4.4,
-                'beta_blocked': 61.0,
-                'beta_blade': 65.0,
-                'slip': self._blade_properties.mock_slip_deg,
-                'cu_slipped': 26.0,
-            },
+            "inlet_hub": _format_inlet(inlet_hub),
+            "inlet_tip": _format_inlet(inlet_tip),
+            "outlet_hub": _format_outlet(outlet_hub),
+            "outlet_tip": _format_outlet(outlet_tip),
         }
 
         self.triangle_details.update_details(triangle_data)
 
     def _update_analysis_plots(self):
         """Update analysis plots."""
-        # Create sample plot data
-        # In full implementation, this would compute from actual blade angle distributions
+        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+
+        def _deg(value: float) -> float:
+            return value * 180.0 / math.pi
+
         plot_data = {
-            'spans': [0.0, 1.0],  # Hub to tip
-            'beta_inlet': [25.0, 30.0],
-            'beta_outlet': [55.0, 60.0],
-            'beta_blade_inlet': [30.0, 35.0],
-            'beta_blade_outlet': [60.0, 65.0],
-            'beta_blocked_inlet': [26.0, 31.0],
-            'beta_blocked_outlet': [56.0, 61.0],
-            'slip_angles': [
-                self._blade_properties.mock_slip_deg,
-                self._blade_properties.mock_slip_deg
-            ],
-            'incidence_angles': [
-                self._blade_properties.incidence_deg,
-                self._blade_properties.incidence_deg
-            ],
+            "spans": [0.0, 1.0],
+            "beta_inlet": [_deg(inlet_hub.beta), _deg(inlet_tip.beta)],
+            "beta_outlet": [_deg(outlet_hub.beta), _deg(outlet_tip.beta)],
+            "beta_blade_inlet": [_deg(inlet_hub.beta_blade_effective), _deg(inlet_tip.beta_blade_effective)],
+            "beta_blade_outlet": [_deg(outlet_hub.beta_blade), _deg(outlet_tip.beta_blade)],
+            "beta_blocked_inlet": [_deg(inlet_hub.beta_blocked), _deg(inlet_tip.beta_blocked)],
+            "beta_blocked_outlet": [_deg(outlet_hub.beta_blocked), _deg(outlet_tip.beta_blocked)],
+            "slip_angles": [_deg(outlet_hub.slip), _deg(outlet_tip.slip)],
+            "incidence_angles": [_deg(inlet_hub.incidence), _deg(inlet_tip.incidence)],
         }
 
         self.analysis_plots.update_data(plot_data)

@@ -18,6 +18,7 @@ from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
+from .app.state.app_state import AppState
 from .tabs.design_tab import DesignTab
 from .tabs.blade_properties_tab import BladePropertiesTab
 from .tabs.export_tab import ExportTab
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
         
         # Initialize design
         self.design = InducerDesign.create_default()
+        self.state = AppState.create_default()
         
         # Setup UI
         self._setup_ui()
@@ -289,7 +291,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.design_tab, "Design")
 
         # Blade Properties tab
-        self.blade_properties_tab = BladePropertiesTab()
+        self.blade_properties_tab = BladePropertiesTab(app_state=self.state)
         self.tab_widget.addTab(self.blade_properties_tab, "Blade properties")
 
         # Export tab (always last)

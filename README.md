@@ -88,6 +88,10 @@ python -m pytest tests/ -v --cov=pumpforge3d_core
 
 ```
 PumpForge3D/
+├── core/                      # GUI-independent core models
+│   ├── inducer.py              # Inducer information model (source of truth)
+│   └── velocity_triangles.py   # Inlet/Outlet triangle classes
+│
 ├── apps/
 │   └── PumpForge3D/          # GUI application
 │       ├── __main__.py       # Entry point
@@ -106,6 +110,12 @@ PumpForge3D/
 ├── requirements.txt
 └── README.md
 ```
+
+## Core Layer Notes
+
+- `core/` is GUI-independent and safe to import headlessly.
+- The `Inducer` model is the single source of truth for inducer inputs and derived values.
+- Velocity triangle computations live in `core/velocity_triangles.py`, and GUI plots consume triangle objects rather than recomputing formulas.
 
 ## Design Workflow
 

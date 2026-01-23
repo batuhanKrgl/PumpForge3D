@@ -21,9 +21,7 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 
-from pumpforge3d_core.analysis.velocity_triangle import (
-    TriangleData, compute_triangle
-)
+from core.velocity_triangles import InletTriangle, OutletTriangle
 
 
 class VelocityTriangleWidget(QWidget):
@@ -48,6 +46,9 @@ class VelocityTriangleWidget(QWidget):
         self._r2_hub = 0.04
         self._r2_tip = 0.06
         self._alpha1 = 90.0
+        self._blade_number = 3
+        self._incidence_in = 0.0
+        self._slip_out = 5.0
         
         self._beta_in_hub = 25.0
         self._beta_in_tip = 30.0
@@ -60,6 +61,7 @@ class VelocityTriangleWidget(QWidget):
         self._beta_blade_out_tip = 65.0
         
         self._k_blockage = 1.10
+        self._triangles = None
         
         self._setup_ui()
         self._connect_signals()
@@ -139,11 +141,7 @@ class VelocityTriangleWidget(QWidget):
         pass
     
     def _update_all(self):
-        # Compute all 4 triangles
-        inlet_hub = compute_triangle(self._beta_in_hub, self._r1_hub, self._rpm, self._cm1, self._alpha1, use_beta=False)
-        inlet_tip = compute_triangle(self._beta_in_tip, self._r1_tip, self._rpm, self._cm1, self._alpha1, use_beta=False)
-        outlet_hub = compute_triangle(self._beta_out_hub, self._r2_hub, self._rpm, self._cm2, 90.0, use_beta=True)
-        outlet_tip = compute_triangle(self._beta_out_tip, self._r2_tip, self._rpm, self._cm2, 90.0, use_beta=True)
+        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_triangles()
 
         all_tris = [inlet_hub, inlet_tip, outlet_hub, outlet_tip]
 
@@ -152,29 +150,9 @@ class VelocityTriangleWidget(QWidget):
         for idx, tri in enumerate(all_tris):
             labels = ["Inlet Hub", "Inlet Tip", "Outlet Hub", "Outlet Tip"]
             # Check for warnings from compute_triangle
-            if tri.warning:
-                warnings.append(f"{labels[idx]}: {tri.warning}")
-
             # Validate finite values
-            if not all(np.isfinite([tri.u, tri.cm, tri.cu, tri.wu, tri.c, tri.w, tri.alpha, tri.beta])):
+            if not all(np.isfinite([tri.u, tri.c_m, tri.cu, tri.wu, tri.c, tri.w, tri.alpha, tri.beta])):
                 warnings.append(f"{labels[idx]}: NaN/Inf detected in triangle data")
-                # Sanitize: replace NaN/Inf with safe fallback
-                if not np.isfinite(tri.u):
-                    tri.u = 0.0
-                if not np.isfinite(tri.cm):
-                    tri.cm = 0.0
-                if not np.isfinite(tri.cu):
-                    tri.cu = 0.0
-                if not np.isfinite(tri.wu):
-                    tri.wu = 0.0
-                if not np.isfinite(tri.c):
-                    tri.c = 0.0
-                if not np.isfinite(tri.w):
-                    tri.w = 0.0
-                if not np.isfinite(tri.alpha):
-                    tri.alpha = 90.0
-                if not np.isfinite(tri.beta):
-                    tri.beta = 90.0
 
         # Update status label
         if warnings:
@@ -192,8 +170,8 @@ class VelocityTriangleWidget(QWidget):
         else:
             # Show key computed values for debugging/validation
             status_parts = [
-                f"Inlet Hub: α={inlet_hub.alpha:.1f}° β={inlet_hub.beta:.1f}° u={inlet_hub.u:.2f} cu={inlet_hub.cu:.2f} wu={inlet_hub.wu:.2f}",
-                f"Outlet Hub: α={outlet_hub.alpha:.1f}° β={outlet_hub.beta:.1f}° u={outlet_hub.u:.2f} cu={outlet_hub.cu:.2f} wu={outlet_hub.wu:.2f}"
+                f"Inlet Hub: α={math.degrees(inlet_hub.alpha):.1f}° β={math.degrees(inlet_hub.beta):.1f}° u={inlet_hub.u:.2f} cu={inlet_hub.cu:.2f} wu={inlet_hub.wu:.2f}",
+                f"Outlet Hub: α={math.degrees(outlet_hub.alpha):.1f}° β={math.degrees(outlet_hub.beta):.1f}° u={outlet_hub.u:.2f} cu={outlet_hub.cu:.2f} wu={outlet_hub.wu:.2f}"
             ]
             self.status_label.setText(" | ".join(status_parts))
             self.status_label.setStyleSheet("""
@@ -212,10 +190,10 @@ class VelocityTriangleWidget(QWidget):
         axes = self.main_fig.subplots(2, 2)
 
         triangles_data = [
-            ("Inlet Hub", inlet_hub, self._beta_blade_in_hub),      # row 0, col 0
-            ("Inlet Tip", inlet_tip, self._beta_blade_in_tip),      # row 0, col 1
-            ("Outlet Hub", outlet_hub, self._beta_blade_out_hub),   # row 1, col 0
-            ("Outlet Tip", outlet_tip, self._beta_blade_out_tip)    # row 1, col 1
+            ("Inlet Hub", inlet_hub, inlet_hub.beta_blade_effective),      # row 0, col 0
+            ("Inlet Tip", inlet_tip, inlet_tip.beta_blade_effective),      # row 0, col 1
+            ("Outlet Hub", outlet_hub, outlet_hub.beta_blade),   # row 1, col 0
+            ("Outlet Tip", outlet_tip, outlet_tip.beta_blade)    # row 1, col 1
         ]
 
         # Calculate axis limits per row (xlim) and per column (ylim)
@@ -228,10 +206,10 @@ class VelocityTriangleWidget(QWidget):
         row1_xmin = min(min(0, outlet_hub.wu) - margin, min(0, outlet_tip.wu) - margin)
 
         # Calculate ylim for each column
-        col0_ymax = max(inlet_hub.cm * self._k_blockage * 1.15 + margin,
-                        outlet_hub.cm * self._k_blockage * 1.15 + margin)
-        col1_ymax = max(inlet_tip.cm * self._k_blockage * 1.15 + margin,
-                        outlet_tip.cm * self._k_blockage * 1.15 + margin)
+        col0_ymax = max(inlet_hub.cm_blocked * 1.15 + margin,
+                        outlet_hub.cm_blocked * 1.15 + margin)
+        col1_ymax = max(inlet_tip.cm_blocked * 1.15 + margin,
+                        outlet_tip.cm_blocked * 1.15 + margin)
         unified_ymin = -margin - 2
 
         # Map row/col to their limits
@@ -248,7 +226,7 @@ class VelocityTriangleWidget(QWidget):
         for idx, (title, tri, beta_blade) in enumerate(triangles_data):
             row, col = idx // 2, idx % 2
             ax = axes[row, col]
-            self._draw_tri(ax, tri, beta_blade, self._k_blockage, title)
+            self._draw_tri(ax, tri, beta_blade, title)
 
             # Apply row-specific xlim and column-specific ylim
             ax.set_xlim(*row_xlims[row])
@@ -260,23 +238,80 @@ class VelocityTriangleWidget(QWidget):
         self.main_fig.tight_layout()
         self.main_canvas.draw()
 
+    def _get_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
+        if self._triangles is not None:
+            return self._triangles
+        return self._build_triangles_from_inputs()
+
+    def _build_triangles_from_inputs(
+        self,
+    ) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
+        omega = self._rpm * 2.0 * math.pi / 60.0
+        alpha_rad = math.radians(self._alpha1)
+
+        inlet_hub = InletTriangle(
+            r=self._r1_hub,
+            omega=omega,
+            c_m=self._cm1,
+            alpha=alpha_rad,
+            blade_number=self._blade_number,
+            blockage=self._k_blockage,
+            incidence=math.radians(self._incidence_in),
+            beta_blade=math.radians(self._beta_blade_in_hub),
+        )
+        inlet_tip = InletTriangle(
+            r=self._r1_tip,
+            omega=omega,
+            c_m=self._cm1,
+            alpha=alpha_rad,
+            blade_number=self._blade_number,
+            blockage=self._k_blockage,
+            incidence=math.radians(self._incidence_in),
+            beta_blade=math.radians(self._beta_blade_in_tip),
+        )
+
+        slip_hub = math.radians(self._beta_blade_out_hub - self._beta_out_hub)
+        slip_tip = math.radians(self._beta_blade_out_tip - self._beta_out_tip)
+        outlet_hub = OutletTriangle(
+            r=self._r2_hub,
+            omega=omega,
+            c_m=self._cm2,
+            beta_blade=math.radians(self._beta_blade_out_hub),
+            blade_number=self._blade_number,
+            blockage=self._k_blockage,
+            slip=slip_hub,
+        )
+        outlet_tip = OutletTriangle(
+            r=self._r2_tip,
+            omega=omega,
+            c_m=self._cm2,
+            beta_blade=math.radians(self._beta_blade_out_tip),
+            blade_number=self._blade_number,
+            blockage=self._k_blockage,
+            slip=slip_tip,
+        )
+        return inlet_hub, inlet_tip, outlet_hub, outlet_tip
+
     def _update_data_viewer(self, inlet_hub, inlet_tip, outlet_hub, outlet_tip):
         """Populate data viewer table with comprehensive triangle data."""
+        def _rpm(omega: float) -> float:
+            return omega * 60.0 / (2.0 * math.pi)
+
         # Parameters to display
         params = [
-            ("Radius (m)", lambda t: f"{t.radius:.4f}"),
-            ("RPM", lambda t: f"{t.rpm:.1f}"),
+            ("Radius (m)", lambda t: f"{t.r:.4f}"),
+            ("RPM", lambda t: f"{_rpm(t.omega):.1f}"),
             ("", lambda t: ""),  # Separator
             ("u (m/s)", lambda t: f"{t.u:.2f}"),
-            ("cm (m/s)", lambda t: f"{t.cm:.2f}"),
+            ("cm (m/s)", lambda t: f"{t.c_m:.2f}"),
             ("cu (m/s)", lambda t: f"{t.cu:.2f}"),
             ("wu (m/s)", lambda t: f"{t.wu:.2f}"),
             ("", lambda t: ""),  # Separator
             ("c (m/s)", lambda t: f"{t.c:.2f}"),
             ("w (m/s)", lambda t: f"{t.w:.2f}"),
             ("", lambda t: ""),  # Separator
-            ("α (deg)", lambda t: f"{t.alpha:.2f}"),
-            ("β (deg)", lambda t: f"{t.beta:.2f}"),
+            ("α (deg)", lambda t: f"{math.degrees(t.alpha):.2f}"),
+            ("β (deg)", lambda t: f"{math.degrees(t.beta):.2f}"),
             ("", lambda t: ""),  # Separator
             ("c/u ratio", lambda t: f"{t.c/t.u:.3f}" if t.u > 0.01 else "N/A"),
             ("w/u ratio", lambda t: f"{t.w/t.u:.3f}" if t.u > 0.01 else "N/A"),
@@ -306,7 +341,7 @@ class VelocityTriangleWidget(QWidget):
                     value_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.data_viewer.setItem(row_idx, col_idx + 1, value_item)
 
-    def _draw_tri(self, ax, tri, beta_blade, k, title):
+    def _draw_tri(self, ax, tri, beta_blade, title):
         """Draw triangle on given axes with improved readability and stability."""
         ax.set_facecolor('#1e1e2e')
         ax.set_title(title, color='#cdd6f4', fontsize=10, fontweight='bold')
@@ -317,10 +352,10 @@ class VelocityTriangleWidget(QWidget):
         # Geometry
         o = np.array([0, 0])
         u = np.array([tri.u, 0])
-        apex = np.array([tri.wu, tri.cm])
+        apex = np.array([tri.wu, tri.c_m])
         
         # Blocked geometry
-        cm_b = tri.cm * k
+        cm_b = tri.cm_blocked
         apex_b = np.array([tri.wu, cm_b])
 
         # Blade line - FIXED: properly handle singularities at beta=0° and beta=90°
@@ -328,16 +363,16 @@ class VelocityTriangleWidget(QWidget):
         # tan(beta) is infinite when beta is near 90° (vertical)
         blade_y = cm_b * 1.1
         # Avoid singularities: check if beta_blade is near 0°, 90°, or 180°
-        if abs(beta_blade) < 2.0 or abs(beta_blade - 180) < 2.0:
+        beta_blade_deg = math.degrees(beta_blade)
+        if abs(beta_blade_deg) < 2.0 or abs(beta_blade_deg - 180) < 2.0:
             # Near horizontal blade (beta ≈ 0° or 180°)
-            blade_x = blade_y * 100 if beta_blade > 0 else -blade_y * 100  # Very large x
-        elif abs(beta_blade - 90) < 2.0:
+            blade_x = blade_y * 100 if beta_blade_deg > 0 else -blade_y * 100  # Very large x
+        elif abs(beta_blade_deg - 90) < 2.0:
             # Near vertical blade (beta ≈ 90°)
             blade_x = 0.0  # Vertical line
         else:
             # Normal case: blade_x = blade_y / tan(beta)
-            beta_rad = math.radians(beta_blade)
-            tan_beta = math.tan(beta_rad)
+            tan_beta = math.tan(beta_blade)
             blade_x = blade_y / tan_beta
         blade_end = np.array([blade_x, blade_y])
         
@@ -353,7 +388,7 @@ class VelocityTriangleWidget(QWidget):
         ax.annotate('', xy=apex, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=1.3))
 
         # w' c' (blocked) - dashed
-        if k > 1.001:
+        if tri.blockage > 1.001:
             ax.annotate('', xy=apex_b, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.0, ls='--'))
             ax.annotate('', xy=apex_b, xytext=u, arrowprops=dict(arrowstyle='->', color=self.COLOR_C, lw=1.0, ls='--'))
 
@@ -389,20 +424,20 @@ class VelocityTriangleWidget(QWidget):
                    bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
         
         # Angle arcs with improved sizing and labels
-        arc_r = min(tri.u, tri.cm) * 0.2
+        arc_r = min(tri.u, tri.c_m) * 0.2
         if arc_r < 1.8:
             arc_r = 1.8
 
         # β arc (flow) - angle from horizontal axis to w vector
         # beta_flow should always be measured from positive x-axis counter-clockwise
-        beta_flow = math.degrees(math.atan2(tri.cm, tri.wu)) if abs(tri.wu) > 0.01 else 90.0
+        beta_flow = math.degrees(math.atan2(tri.c_m, tri.wu)) if abs(tri.wu) > 0.01 else 90.0
         # Ensure beta_flow is in [0, 180] range
         if beta_flow < 0:
             beta_flow += 180
         ax.add_patch(Arc(o, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow, color=self.COLOR_W, lw=1.2))
 
         # β arc (blade) - thick transparent
-        ax.add_patch(Arc(o, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_blade, color=self.COLOR_W, lw=2.8, alpha=0.35))
+        ax.add_patch(Arc(o, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_blade_deg, color=self.COLOR_W, lw=2.8, alpha=0.35))
 
         # β label - positioned at midpoint of flow angle arc
         mid_b = math.radians(beta_flow / 2)
@@ -440,10 +475,22 @@ class VelocityTriangleWidget(QWidget):
         """Show or hide the data viewer table."""
         self.data_viewer.setVisible(visible)
 
+    def set_triangles(
+        self,
+        inlet_hub: InletTriangle,
+        inlet_tip: InletTriangle,
+        outlet_hub: OutletTriangle,
+        outlet_tip: OutletTriangle,
+    ) -> None:
+        """Set triangles directly from core models."""
+        self._triangles = (inlet_hub, inlet_tip, outlet_hub, outlet_tip)
+        self._update_all()
+
     # Public setters for external parameter control
     def set_rpm(self, rpm: float):
         """Set rotational speed (RPM)."""
         self._rpm = rpm
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
@@ -451,6 +498,7 @@ class VelocityTriangleWidget(QWidget):
         """Set meridional velocities (m/s)."""
         self._cm1 = cm1
         self._cm2 = cm2
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
@@ -460,6 +508,7 @@ class VelocityTriangleWidget(QWidget):
         self._r1_tip = r1_tip
         self._r2_hub = r2_hub
         self._r2_tip = r2_tip
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
@@ -470,6 +519,7 @@ class VelocityTriangleWidget(QWidget):
         self._beta_in_tip = beta_in_tip
         self._beta_out_hub = beta_out_hub
         self._beta_out_tip = beta_out_tip
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
@@ -480,18 +530,21 @@ class VelocityTriangleWidget(QWidget):
         self._beta_blade_in_tip = beta_blade_in_tip
         self._beta_blade_out_hub = beta_blade_out_hub
         self._beta_blade_out_tip = beta_blade_out_tip
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
     def set_blockage_factor(self, k_blockage: float):
         """Set blockage factor K."""
         self._k_blockage = k_blockage
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
     def set_alpha1(self, alpha1: float):
         """Set inlet flow angle α₁ (degrees)."""
         self._alpha1 = alpha1
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
 
@@ -520,8 +573,14 @@ class VelocityTriangleWidget(QWidget):
         self._beta_blade_out_hub = beta_blade_out_hub
         self._beta_blade_out_tip = beta_blade_out_tip
         self._k_blockage = k_blockage
+        self._triangles = None
         self._update_all()
         self.inputsChanged.emit()
+
+    def set_beta_values(self, beta_in_hub: float, beta_in_tip: float,
+                        beta_out_hub: float, beta_out_tip: float) -> None:
+        """Backward-compatible alias for updating flow angles."""
+        self.set_flow_angles(beta_in_hub, beta_in_tip, beta_out_hub, beta_out_tip)
 
 
 if __name__ == "__main__":
