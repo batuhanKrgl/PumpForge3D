@@ -20,6 +20,7 @@ from pumpforge3d_core.geometry.meridional import MainDimensions, CurveMode
 
 from ..widgets.diagram_widget import DiagramWidget
 from ..widgets.analysis_plot import AnalysisPlotWidget
+from ..widgets.info_table_widget import CompactInfoTableWidget
 
 
 class StyledSpinBox(QWidget):
@@ -381,48 +382,45 @@ class DesignTab(QWidget):
         return scroll
     
     def _create_right_panel(self) -> QWidget:
-        """Create the right panel with design info and analysis plots."""
+        """Create the right panel with info table (top) and analysis plots (bottom)."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(280)
-        scroll.setMaximumWidth(400)
+        scroll.setMinimumWidth(320)
+        scroll.setMaximumWidth(500)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        
+
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
-        
-        # DESIGN INFO SECTION
-        info_section = CollapsibleSection("Design Info")
-        
-        self.info_tree = QTreeWidget()
-        self.info_tree.setHeaderHidden(True)
-        self.info_tree.setMinimumHeight(180)
-        self.info_tree.setMaximumHeight(220)
-        info_section.addWidget(self.info_tree)
-        
+
+        # INFO TABLE SECTION (now on top)
+        info_section = CollapsibleSection("Info Table")
+
+        self.info_table = CompactInfoTableWidget()
+        info_section.addWidget(self.info_table)
+
         layout.addWidget(info_section)
-        
-        # ANALYSIS SECTION with actual plots (C1 fix)
+
+        # ANALYSIS SECTION with actual plots (below info table)
         analysis_section = CollapsibleSection("Analysis Plots")
-        
+
         self.analysis_widget = AnalysisPlotWidget(self.design)
         analysis_section.addWidget(self.analysis_widget)
-        
+
         layout.addWidget(analysis_section)
-        
+
         # VALIDATION SECTION
         validation_section = CollapsibleSection("Validation")
-        
+
         self.validation_label = QLabel("✅ Design is valid")
         self.validation_label.setWordWrap(True)
         validation_section.addWidget(self.validation_label)
-        
+
         layout.addWidget(validation_section)
-        
+
         layout.addStretch()
-        
+
         scroll.setWidget(container)
         return scroll
     
@@ -652,27 +650,61 @@ class DesignTab(QWidget):
             )
     
     def _update_info_tree(self):
-        """Update the design info tree."""
-        self.info_tree.clear()
-        
-        summary = self.design.get_summary()
-        
-        # Dimensions
-        dims_item = QTreeWidgetItem(["Dimensions"])
-        dims_item.addChild(QTreeWidgetItem([f"Axial length: {summary['axial_length']:.2f} mm"]))
-        dims_item.addChild(QTreeWidgetItem([f"Inlet hub R: {summary['inlet_hub_radius']:.2f} mm"]))
-        dims_item.addChild(QTreeWidgetItem([f"Inlet tip R: {summary['inlet_tip_radius']:.2f} mm"]))
-        dims_item.addChild(QTreeWidgetItem([f"Outlet hub R: {summary['outlet_hub_radius']:.2f} mm"]))
-        dims_item.addChild(QTreeWidgetItem([f"Outlet tip R: {summary['outlet_tip_radius']:.2f} mm"]))
-        self.info_tree.addTopLevelItem(dims_item)
-        dims_item.setExpanded(True)
-        
-        # Arc lengths
-        arcs_item = QTreeWidgetItem(["Arc Lengths"])
-        arcs_item.addChild(QTreeWidgetItem([f"Hub: {summary['hub_arc_length']:.2f} mm"]))
-        arcs_item.addChild(QTreeWidgetItem([f"Tip: {summary['tip_arc_length']:.2f} mm"]))
-        self.info_tree.addTopLevelItem(arcs_item)
-        arcs_item.setExpanded(True)
+        """Update the info table with current design data."""
+        # Create a basic InfoTableData from current design for display
+        # Full calculation requires operating conditions which may not be available here
+        # For now, we show geometric data only
+        from pumpforge3d_core.analysis.turbomachinery_calc import InfoTableData
+
+        dims = self.design.main_dims
+
+        # Create a minimal data object with geometric info
+        data = InfoTableData(
+            # Axial positions (z)
+            z_hub_in=0.0,
+            z_hub_out=dims.L,
+            z_tip_in=0.0,
+            z_tip_out=dims.L,
+            # Radii (r) in mm
+            r_hub_in=dims.r_h_in,
+            r_hub_out=dims.r_h_out,
+            r_tip_in=dims.r_t_in,
+            r_tip_out=dims.r_t_out,
+            # Diameters (d)
+            d_hub_in=2 * dims.r_h_in,
+            d_hub_out=2 * dims.r_h_out,
+            d_tip_in=2 * dims.r_t_in,
+            d_tip_out=2 * dims.r_t_out,
+            # Placeholder flow angles (require operating conditions)
+            alpha_hub_in=90.0, alpha_hub_out=0.0,
+            alpha_tip_in=90.0, alpha_tip_out=0.0,
+            beta_hub_in=0.0, beta_hub_out=0.0,
+            beta_tip_in=0.0, beta_tip_out=0.0,
+            # Placeholder velocities
+            u_hub_in=0.0, u_hub_out=0.0, u_tip_in=0.0, u_tip_out=0.0,
+            cm_hub_in=0.0, cm_hub_out=0.0, cm_tip_in=0.0, cm_tip_out=0.0,
+            cu_hub_in=0.0, cu_hub_out=0.0, cu_tip_in=0.0, cu_tip_out=0.0,
+            cr_hub_in=0.0, cr_hub_out=0.0, cr_tip_in=0.0, cr_tip_out=0.0,
+            cz_hub_in=0.0, cz_hub_out=0.0, cz_tip_in=0.0, cz_tip_out=0.0,
+            c_hub_in=0.0, c_hub_out=0.0, c_tip_in=0.0, c_tip_out=0.0,
+            wu_hub_in=0.0, wu_hub_out=0.0, wu_tip_in=0.0, wu_tip_out=0.0,
+            w_hub_in=0.0, w_hub_out=0.0, w_tip_in=0.0, w_tip_out=0.0,
+            cur_hub_in=0.0, cur_hub_out=0.0, cur_tip_in=0.0, cur_tip_out=0.0,
+            tau_hub_in=0.0, tau_hub_out=0.0, tau_tip_in=0.0, tau_tip_out=0.0,
+            i_hub_in=0.0, delta_hub_out=0.0, i_tip_in=0.0, delta_tip_out=0.0,
+            # Merged values
+            w2_w1_hub=0.0, w2_w1_tip=0.0,
+            c2_c1_hub=0.0, c2_c1_tip=0.0,
+            delta_alpha_hub=0.0, delta_alpha_tip=0.0,
+            delta_beta_hub=0.0, delta_beta_tip=0.0,
+            camber_hub=0.0, camber_tip=0.0,
+            gamma_hub=0.0, gamma_tip=0.0,
+            delta_cur_hub=0.0, delta_cur_tip=0.0,
+            torque=0.0,
+            head=0.0,
+        )
+
+        self.info_table.set_data(data)
     
     def _update_validation(self):
         """Update the validation display."""

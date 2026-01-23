@@ -501,3 +501,605 @@ def calculate_mean_diameter(r_hub: float, r_tip: float) -> float:
         Mean diameter (m)
     """
     return 2.0 * (r_hub + r_tip) / 2.0
+
+
+@dataclass
+class InletTriangleResult:
+    """
+    Complete inlet velocity triangle calculation result.
+
+    Contains all intermediate and final values for the inlet calculation flow:
+    1. Area calculation → cm
+    2. u calculation from rpm and radius
+    3. cu calculation (from alpha, typically 0 for axial inlet)
+    4. wu calculation (u - cu)
+    5. Beta calculation (arctan(cm/wu))
+    6. Blockage calculation → cm_blocked
+    7. Beta_blocked calculation
+    8. Beta_blade calculation (beta_blocked + incidence)
+    """
+    # Input parameters
+    flow_rate: float      # Q (m³/s)
+    radius: float         # r (m)
+    rpm: float            # n (rev/min)
+    alpha_inlet: float    # α₁ (degrees), typically 90° for axial inlet
+
+    # Area and basic velocities
+    area: float           # A₁ (m²)
+    cm: float             # cm₁ (m/s) - meridional velocity
+    u: float              # u₁ (m/s) - blade speed
+
+    # Absolute velocity components
+    cu: float             # cu₁ (m/s) - circumferential absolute
+    c: float              # c₁ (m/s) - absolute velocity magnitude
+    alpha: float          # α₁ (degrees) - absolute flow angle
+
+    # Relative velocity components
+    wu: float             # wu₁ (m/s) - circumferential relative
+    w: float              # w₁ (m/s) - relative velocity magnitude
+    beta: float           # β₁ (degrees) - relative flow angle
+
+    # Blockage parameters
+    tau: float            # τ - obstruction factor
+    k_blockage: float     # K = 1/(1-τ)
+    cm_blocked: float     # cm₁_bl (m/s)
+
+    # Blocked triangle
+    wu_blocked: float     # wu₁_bl (m/s)
+    w_blocked: float      # w₁_bl (m/s)
+    beta_blocked: float   # β₁_bl (degrees)
+
+    # Blade angle
+    incidence: float      # i (degrees)
+    beta_blade: float     # β₁B (degrees) = β₁_bl + i
+
+    # Derived quantities
+    cr: float = 0.0       # Radial component (typically same as cm for axial machines)
+    cz: float = 0.0       # Axial component
+    diameter: float = 0.0  # d (m)
+
+    def __post_init__(self):
+        """Calculate derived quantities."""
+        self.diameter = 2.0 * self.radius
+        # For axial inlet, cr ≈ cm, cz ≈ 0
+        self.cr = self.cm
+        self.cz = 0.0
+
+
+@dataclass
+class OutletTriangleResult:
+    """
+    Complete outlet velocity triangle calculation result.
+
+    Contains all intermediate and final values for the outlet calculation flow:
+    1. Area calculation → cm
+    2. u calculation from rpm and radius
+    3. Beta_blade input (design parameter)
+    4. Blockage calculation → cm_blocked
+    5. Slip calculation → γ, δ
+    6. Beta_blocked calculation (beta_blade - δ)
+    7. cu calculation from triangle
+    8. wu calculation
+    9. Alpha calculation
+    """
+    # Input parameters
+    flow_rate: float      # Q (m³/s)
+    radius: float         # r (m)
+    rpm: float            # n (rev/min)
+    beta_blade: float     # β₂B (degrees) - blade angle (design input)
+
+    # Area and basic velocities
+    area: float           # A₂ (m²)
+    cm: float             # cm₂ (m/s) - meridional velocity
+    u: float              # u₂ (m/s) - blade speed
+
+    # Blockage parameters
+    tau: float            # τ - obstruction factor
+    k_blockage: float     # K = 1/(1-τ)
+    cm_blocked: float     # cm₂_bl (m/s)
+
+    # Slip parameters
+    slip_method: str      # "Wiesner", "Gülich", "Mock"
+    gamma: float          # γ - slip coefficient
+    slip_angle: float     # δ (degrees) - slip/deviation angle
+
+    # Blocked/slipped flow angle
+    beta_blocked: float   # β₂_bl (degrees) = β₂B - δ
+
+    # Relative velocity components (with slip)
+    wu: float             # wu₂ (m/s) - circumferential relative
+    w: float              # w₂ (m/s) - relative velocity magnitude
+    beta: float           # β₂ (degrees) - actual relative flow angle
+
+    # Absolute velocity components
+    cu: float             # cu₂ (m/s) - circumferential absolute
+    c: float              # c₂ (m/s) - absolute velocity magnitude
+    alpha: float          # α₂ (degrees) - absolute flow angle
+
+    # Derived quantities
+    cr: float = 0.0       # Radial component
+    cz: float = 0.0       # Axial component
+    diameter: float = 0.0  # d (m)
+
+    # Ideal (no-slip) values for comparison
+    cu_ideal: float = 0.0
+    c_ideal: float = 0.0
+
+    def __post_init__(self):
+        """Calculate derived quantities."""
+        self.diameter = 2.0 * self.radius
+        self.cr = self.cm
+        self.cz = 0.0
+
+
+def compute_inlet_triangle(
+    flow_rate: float,
+    r_hub: float,
+    r_tip: float,
+    rpm: float,
+    span_fraction: float = 0.0,
+    alpha_inlet: float = 90.0,
+    incidence: float = 0.0,
+    blade_count: int = 6,
+    thickness: float = 0.002
+) -> InletTriangleResult:
+    """
+    Compute complete inlet velocity triangle.
+
+    Flow:
+    1. A₁ = π(r_tip² - r_hub²)
+    2. cm₁ = Q / A₁
+    3. u₁ = ω × r = (2π × n/60) × r
+    4. cu₁ = cm₁ / tan(α₁)  [typically 0 for α₁=90°]
+    5. wu₁ = u₁ - cu₁
+    6. β₁ = arctan(cm₁ / wu₁)
+    7. τ = z × t / (π × d_m)
+    8. K = 1/(1-τ)
+    9. cm₁_bl = cm₁ × K
+    10. β₁_bl = arctan(cm₁_bl / wu₁)
+    11. β₁B = β₁_bl + i
+
+    Args:
+        flow_rate: Volume flow rate Q (m³/s)
+        r_hub: Hub radius (m)
+        r_tip: Tip radius (m)
+        rpm: Rotational speed (rev/min)
+        span_fraction: Position along span (0=hub, 1=tip)
+        alpha_inlet: Inlet absolute flow angle (degrees), 90° = axial
+        incidence: Incidence angle (degrees)
+        blade_count: Number of blades
+        thickness: Blade thickness at this span (m)
+
+    Returns:
+        InletTriangleResult with all calculation results
+    """
+    # 1. Calculate area
+    area = calculate_flow_area(r_hub, r_tip)
+
+    # 2. Calculate meridional velocity
+    cm = flow_rate / area if area > 0 else 0.0
+
+    # Get radius at span
+    radius = r_hub + span_fraction * (r_tip - r_hub)
+
+    # 3. Calculate blade speed
+    omega = rpm * 2 * math.pi / 60
+    u = omega * radius
+
+    # 4. Calculate cu from alpha
+    # α = 90° means pure axial flow (cu = 0)
+    # α < 90° means positive preswirl
+    alpha_rad = math.radians(alpha_inlet)
+    if abs(math.cos(alpha_rad)) < 1e-10:
+        cu = 0.0
+    else:
+        cu = cm / math.tan(alpha_rad) if abs(math.tan(alpha_rad)) > 1e-10 else 0.0
+
+    # 5. Calculate wu from identity: wu + cu = u
+    wu = u - cu
+
+    # Calculate velocity magnitudes
+    c = math.sqrt(cu**2 + cm**2)
+    w = math.sqrt(wu**2 + cm**2)
+
+    # 6. Calculate beta (relative flow angle)
+    if abs(wu) < 1e-10:
+        beta = 90.0
+    else:
+        beta = math.degrees(math.atan(cm / wu))
+
+    # Recalculate actual alpha
+    if abs(cu) < 1e-10:
+        alpha = 90.0
+    else:
+        alpha = math.degrees(math.atan(cm / abs(cu)))
+        if cu < 0:
+            alpha = 180 - alpha
+
+    # 7. Calculate blockage (obstruction factor)
+    d_mean = calculate_mean_diameter(r_hub, r_tip)
+    tau = calculate_obstruction_factor(blade_count, thickness, d_mean)
+
+    # 8. Blockage multiplier
+    k_blockage = 1.0 / (1.0 - tau) if tau < 1.0 else 1.5
+
+    # 9. Blocked meridional velocity
+    cm_blocked = cm * k_blockage
+
+    # 10. Blocked velocities (wu unchanged, recalculate w)
+    wu_blocked = wu  # wu doesn't change with blockage
+    w_blocked = math.sqrt(wu_blocked**2 + cm_blocked**2)
+
+    # Blocked beta
+    if abs(wu_blocked) < 1e-10:
+        beta_blocked = 90.0
+    else:
+        beta_blocked = math.degrees(math.atan(cm_blocked / wu_blocked))
+
+    # 11. Blade angle with incidence
+    beta_blade = beta_blocked + incidence
+
+    return InletTriangleResult(
+        flow_rate=flow_rate,
+        radius=radius,
+        rpm=rpm,
+        alpha_inlet=alpha_inlet,
+        area=area,
+        cm=cm,
+        u=u,
+        cu=cu,
+        c=c,
+        alpha=alpha,
+        wu=wu,
+        w=w,
+        beta=beta,
+        tau=tau,
+        k_blockage=k_blockage,
+        cm_blocked=cm_blocked,
+        wu_blocked=wu_blocked,
+        w_blocked=w_blocked,
+        beta_blocked=beta_blocked,
+        incidence=incidence,
+        beta_blade=beta_blade,
+    )
+
+
+def compute_outlet_triangle(
+    flow_rate: float,
+    r_hub: float,
+    r_tip: float,
+    rpm: float,
+    beta_blade: float = 35.0,
+    span_fraction: float = 0.0,
+    blade_count: int = 6,
+    thickness: float = 0.0015,
+    slip_method: str = "Wiesner"
+) -> OutletTriangleResult:
+    """
+    Compute complete outlet velocity triangle.
+
+    Flow:
+    1. A₂ = π(r_tip² - r_hub²)
+    2. cm₂ = Q / A₂
+    3. u₂ = ω × r
+    4. β₂B = blade angle (design input, default 35°)
+    5. τ = z × t / (π × d_m)
+    6. K = 1/(1-τ)
+    7. cm₂_bl = cm₂ × K
+    8. γ = slip coefficient (from Wiesner/Gülich/Mock)
+    9. δ = slip angle
+    10. β₂_bl = β₂B - δ (or: cu₂ = γ × cu₂_ideal)
+    11. wu₂ = cm₂_bl / tan(β₂_bl)
+    12. cu₂ = u₂ - wu₂
+    13. α₂ = arctan(cm₂ / cu₂)
+
+    Args:
+        flow_rate: Volume flow rate Q (m³/s)
+        r_hub: Hub radius (m)
+        r_tip: Tip radius (m)
+        rpm: Rotational speed (rev/min)
+        beta_blade: Blade exit angle (degrees), default 35°
+        span_fraction: Position along span (0=hub, 1=tip)
+        blade_count: Number of blades
+        thickness: Blade thickness at this span (m)
+        slip_method: "Wiesner", "Gülich", or "Mock"
+
+    Returns:
+        OutletTriangleResult with all calculation results
+    """
+    # 1. Calculate area
+    area = calculate_flow_area(r_hub, r_tip)
+
+    # 2. Calculate meridional velocity
+    cm = flow_rate / area if area > 0 else 0.0
+
+    # Get radius at span
+    radius = r_hub + span_fraction * (r_tip - r_hub)
+
+    # 3. Calculate blade speed
+    omega = rpm * 2 * math.pi / 60
+    u = omega * radius
+
+    # 5-6. Calculate blockage
+    d_mean = calculate_mean_diameter(r_hub, r_tip)
+    tau = calculate_obstruction_factor(blade_count, thickness, d_mean)
+    k_blockage = 1.0 / (1.0 - tau) if tau < 1.0 else 1.5
+
+    # 7. Blocked meridional velocity
+    cm_blocked = cm * k_blockage
+
+    # 8-9. Calculate slip
+    gamma, slip_angle = _calculate_slip(beta_blade, blade_count, slip_method)
+
+    # Calculate ideal cu (no slip)
+    beta_blade_rad = math.radians(beta_blade)
+    if abs(math.tan(beta_blade_rad)) < 0.01:
+        wu_ideal = cm_blocked * 100
+    else:
+        wu_ideal = cm_blocked / math.tan(beta_blade_rad)
+    cu_ideal = u - wu_ideal
+    c_ideal = math.sqrt(cu_ideal**2 + cm_blocked**2)
+
+    # 10. Beta with slip
+    beta_blocked = beta_blade - slip_angle
+
+    # 11. Calculate wu from blocked beta
+    beta_blocked_rad = math.radians(beta_blocked)
+    if abs(math.tan(beta_blocked_rad)) < 0.01:
+        wu = cm_blocked * 100 * (1 if beta_blocked >= 0 else -1)
+    else:
+        wu = cm_blocked / math.tan(beta_blocked_rad)
+
+    # 12. Calculate cu from identity
+    cu = u - wu
+
+    # Alternative: apply slip coefficient directly
+    # cu = gamma * cu_ideal
+
+    # Velocity magnitudes
+    w = math.sqrt(wu**2 + cm_blocked**2)
+    c = math.sqrt(cu**2 + cm_blocked**2)
+
+    # Actual beta (should match beta_blocked)
+    if abs(wu) < 1e-10:
+        beta = 90.0
+    else:
+        beta = math.degrees(math.atan(cm_blocked / wu))
+
+    # 13. Calculate alpha
+    if abs(cu) < 1e-10:
+        alpha = 90.0
+    else:
+        alpha = math.degrees(math.atan(cm_blocked / abs(cu)))
+        if cu < 0:
+            alpha = 180 - alpha
+
+    return OutletTriangleResult(
+        flow_rate=flow_rate,
+        radius=radius,
+        rpm=rpm,
+        beta_blade=beta_blade,
+        area=area,
+        cm=cm,
+        u=u,
+        tau=tau,
+        k_blockage=k_blockage,
+        cm_blocked=cm_blocked,
+        slip_method=slip_method,
+        gamma=gamma,
+        slip_angle=slip_angle,
+        beta_blocked=beta_blocked,
+        wu=wu,
+        w=w,
+        beta=beta,
+        cu=cu,
+        c=c,
+        alpha=alpha,
+        cu_ideal=cu_ideal,
+        c_ideal=c_ideal,
+    )
+
+
+def _calculate_slip(
+    beta_blade_deg: float,
+    blade_count: int,
+    method: str = "Wiesner"
+) -> Tuple[float, float]:
+    """
+    Calculate slip coefficient and slip angle.
+
+    Args:
+        beta_blade_deg: Blade exit angle (degrees)
+        blade_count: Number of blades
+        method: "Wiesner", "Gülich", or "Mock"
+
+    Returns:
+        (gamma, slip_angle_deg) - slip coefficient and slip angle
+    """
+    if method.lower() == "mock":
+        # Fixed slip coefficient
+        gamma = 0.9
+        # Slip angle approximation: δ ≈ (1-γ) × β₂B
+        slip_angle = (1 - gamma) * beta_blade_deg
+        return (gamma, slip_angle)
+
+    elif method.lower() == "wiesner":
+        # Wiesner correlation (1967)
+        # γ = 1 - sqrt(sin(β₂B)) / z^0.7
+        beta_rad = math.radians(beta_blade_deg)
+        sin_beta = abs(math.sin(beta_rad))
+
+        if blade_count <= 0:
+            gamma = 1.0
+        else:
+            gamma = 1.0 - math.sqrt(sin_beta) / (blade_count ** 0.7)
+            gamma = max(0.5, min(1.0, gamma))
+
+        # Slip angle from gamma
+        # cu_actual = gamma × cu_ideal
+        # From geometry: δ ≈ arctan((1-γ) × cu_ideal / cm)
+        # Simplified: δ ≈ (1-γ) × β₂B (approximation)
+        slip_angle = (1 - gamma) * abs(beta_blade_deg)
+        return (gamma, slip_angle)
+
+    elif method.lower() == "gülich" or method.lower() == "gulich":
+        # Gülich correlation
+        # Similar to Wiesner but with different constants
+        beta_rad = math.radians(beta_blade_deg)
+        sin_beta = abs(math.sin(beta_rad))
+
+        if blade_count <= 0:
+            gamma = 1.0
+        else:
+            # Gülich: γ = 1 - (π/z) × sqrt(sin(β₂B))
+            gamma = 1.0 - (math.pi / blade_count) * math.sqrt(sin_beta)
+            gamma = max(0.5, min(1.0, gamma))
+
+        slip_angle = (1 - gamma) * abs(beta_blade_deg)
+        return (gamma, slip_angle)
+
+    else:
+        # Default to Wiesner
+        return _calculate_slip(beta_blade_deg, blade_count, "Wiesner")
+
+
+def calculate_euler_head(
+    cu_in: float,
+    cu_out: float,
+    u_in: float,
+    u_out: float,
+    g: float = 9.81
+) -> float:
+    """
+    Calculate Euler head (theoretical head).
+
+    H_euler = (u₂×cu₂ - u₁×cu₁) / g
+
+    For pumps with axial inlet (cu₁=0):
+    H_euler = u₂×cu₂ / g
+
+    Args:
+        cu_in: Inlet circumferential absolute velocity (m/s)
+        cu_out: Outlet circumferential absolute velocity (m/s)
+        u_in: Inlet blade speed (m/s)
+        u_out: Outlet blade speed (m/s)
+        g: Gravitational acceleration (m/s²)
+
+    Returns:
+        Euler head (m)
+    """
+    return (u_out * cu_out - u_in * cu_in) / g
+
+
+def calculate_swirl_difference(
+    cu_in: float,
+    cu_out: float,
+    r_in: float,
+    r_out: float
+) -> float:
+    """
+    Calculate swirl difference Δ(cu×r).
+
+    Δ(cu×r) = cu₂×r₂ - cu₁×r₁
+
+    This is related to torque and Euler work.
+
+    Args:
+        cu_in: Inlet circumferential absolute velocity (m/s)
+        cu_out: Outlet circumferential absolute velocity (m/s)
+        r_in: Inlet radius (m)
+        r_out: Outlet radius (m)
+
+    Returns:
+        Swirl difference (m²/s)
+    """
+    return cu_out * r_out - cu_in * r_in
+
+
+def calculate_torque(
+    flow_rate: float,
+    cu_in: float,
+    cu_out: float,
+    r_in: float,
+    r_out: float,
+    density: float = 1000.0
+) -> float:
+    """
+    Calculate shaft torque.
+
+    T = ρ × Q × Δ(cu×r)
+    T = ρ × Q × (cu₂×r₂ - cu₁×r₁)
+
+    Args:
+        flow_rate: Volume flow rate (m³/s)
+        cu_in: Inlet circumferential absolute velocity (m/s)
+        cu_out: Outlet circumferential absolute velocity (m/s)
+        r_in: Inlet radius (m)
+        r_out: Outlet radius (m)
+        density: Fluid density (kg/m³), default 1000 for water
+
+    Returns:
+        Torque (N·m)
+    """
+    delta_cur = calculate_swirl_difference(cu_in, cu_out, r_in, r_out)
+    return density * flow_rate * delta_cur
+
+
+def calculate_velocity_ratios(
+    inlet: InletTriangleResult,
+    outlet: OutletTriangleResult
+) -> Tuple[float, float]:
+    """
+    Calculate velocity ratios w₂/w₁ and c₂/c₁.
+
+    Args:
+        inlet: Inlet triangle result
+        outlet: Outlet triangle result
+
+    Returns:
+        (w2_w1, c2_c1) velocity ratios
+    """
+    w2_w1 = outlet.w / inlet.w if inlet.w > 0 else 0.0
+    c2_c1 = outlet.c / inlet.c if inlet.c > 0 else 0.0
+    return (w2_w1, c2_c1)
+
+
+def calculate_deflection_angles(
+    inlet: InletTriangleResult,
+    outlet: OutletTriangleResult
+) -> Tuple[float, float]:
+    """
+    Calculate flow deflection angles.
+
+    Δα_F = α₂ - α₁
+    Δβ_F = β₂ - β₁
+
+    Args:
+        inlet: Inlet triangle result
+        outlet: Outlet triangle result
+
+    Returns:
+        (delta_alpha, delta_beta) deflection angles (degrees)
+    """
+    delta_alpha = outlet.alpha - inlet.alpha
+    delta_beta = outlet.beta - inlet.beta
+    return (delta_alpha, delta_beta)
+
+
+def calculate_camber_angle(
+    inlet: InletTriangleResult,
+    outlet: OutletTriangleResult
+) -> float:
+    """
+    Calculate blade camber angle.
+
+    φ = Δβ_B = β₂B - β₁B
+
+    Args:
+        inlet: Inlet triangle result
+        outlet: Outlet triangle result
+
+    Returns:
+        Camber angle (degrees)
+    """
+    return outlet.beta_blade - inlet.beta_blade
