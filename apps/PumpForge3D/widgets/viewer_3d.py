@@ -31,11 +31,25 @@ except ImportError:
 class Viewer3DWidget(QWidget):
     """
     3D viewer for inducer geometry visualization.
-    
+
     Uses PyVistaQt for interactive 3D rendering.
     Falls back to placeholder if pyvista is not installed.
     """
-    
+
+    # Colors for mean lines (jet-like colormap)
+    MEAN_LINE_COLORS = [
+        '#89b4fa',  # Blue (hub)
+        '#74c7ec',  # Sapphire
+        '#94e2d5',  # Teal
+        '#a6e3a1',  # Green
+        '#f9e2af',  # Yellow
+        '#fab387',  # Peach
+        '#f38ba8',  # Red (tip)
+        '#cba6f7',  # Mauve
+        '#b4befe',  # Lavender
+        '#eba0ac',  # Maroon
+    ]
+
     def __init__(self, design: InducerDesign, parent=None):
         super().__init__(parent)
         self.design = design
@@ -50,8 +64,11 @@ class Viewer3DWidget(QWidget):
             'outlet_hub_circle': True,
             'outlet_tip_circle': True,
             'reference': True,
+            'mean_lines': True,
         }
         self._actors: Dict[str, object] = {}
+        self._mean_line_actors: Dict[str, object] = {}
+        self._mean_lines_data: Optional[np.ndarray] = None  # Shape (n_j, n_i, 3)
         self._setup_ui()
     
     def _setup_ui(self):
@@ -298,3 +315,68 @@ class Viewer3DWidget(QWidget):
     def get_visible_objects(self) -> Dict[str, bool]:
         """Get current visibility state."""
         return self._visibility.copy()
+
+    def update_mean_lines(self, xyz_lines: Optional[np.ndarray]):
+        """
+        Update 3D mean-line visualization.
+
+        Args:
+            xyz_lines: Mean-line coordinates, shape (n_j, n_i, 3) where
+                      n_j = number of spans, n_i = meridional points.
+                      Set to None to clear mean lines.
+        """
+        if not PYVISTA_AVAILABLE or self.plotter is None:
+            return
+
+        # Clear existing mean line actors
+        for name, actor in list(self._mean_line_actors.items()):
+            try:
+                self.plotter.remove_actor(actor)
+            except Exception:
+                pass
+        self._mean_line_actors.clear()
+
+        self._mean_lines_data = xyz_lines
+
+        if xyz_lines is None or not self._visibility.get('mean_lines', True):
+            return
+
+        n_j = xyz_lines.shape[0]
+
+        for j in range(n_j):
+            line_pts = xyz_lines[j]  # Shape (n_i, 3)
+
+            # Skip if empty
+            if line_pts.shape[0] < 2:
+                continue
+
+            # Create polyline
+            line = pv.lines_from_points(line_pts)
+
+            # Select color from colormap
+            color = self.MEAN_LINE_COLORS[j % len(self.MEAN_LINE_COLORS)]
+
+            # Line width: thicker for hub/tip
+            is_hub = (j == 0)
+            is_tip = (j == n_j - 1)
+            line_width = 3 if (is_hub or is_tip) else 2
+
+            actor_name = f'mean_line_{j}'
+            actor = self.plotter.add_mesh(
+                line,
+                color=color,
+                line_width=line_width,
+                render_lines_as_tubes=True,
+                name=actor_name,
+            )
+            self._mean_line_actors[actor_name] = actor
+
+    def clear_mean_lines(self):
+        """Remove all mean line visualizations."""
+        self.update_mean_lines(None)
+
+    def set_mean_lines_visibility(self, visible: bool):
+        """Toggle mean lines visibility."""
+        self._visibility['mean_lines'] = visible
+        if self._mean_lines_data is not None:
+            self.update_mean_lines(self._mean_lines_data if visible else None)

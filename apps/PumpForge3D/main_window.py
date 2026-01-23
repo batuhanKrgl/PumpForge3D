@@ -20,6 +20,7 @@ from pumpforge3d_core.geometry.inducer import InducerDesign
 
 from .tabs.design_tab import DesignTab
 from .tabs.blade_properties_tab import BladePropertiesTab
+from .tabs.mean_surface_tab import MeanSurfaceTab
 from .tabs.export_tab import ExportTab
 from .widgets.viewer_3d import Viewer3DWidget
 from .widgets.object_list import ObjectVisibilityList
@@ -292,6 +293,10 @@ class MainWindow(QMainWindow):
         self.blade_properties_tab = BladePropertiesTab()
         self.tab_widget.addTab(self.blade_properties_tab, "Blade properties")
 
+        # Mean Surface tab (conformal mapping)
+        self.mean_surface_tab = MeanSurfaceTab(self.design)
+        self.tab_widget.addTab(self.mean_surface_tab, "Mean Surface")
+
         # Export tab (always last)
         self.export_tab = ExportTab(self.design)
         self.tab_widget.addTab(self.export_tab, "Export")
@@ -436,13 +441,16 @@ class MainWindow(QMainWindow):
         # Design tab signals
         self.design_tab.geometry_changed.connect(self._on_geometry_changed)
         self.design_tab.dimensions_changed.connect(self._on_dimensions_changed)
-        
+
+        # Mean Surface tab signals
+        self.mean_surface_tab.mean_lines_changed.connect(self._on_mean_lines_changed)
+
         # Export tab signals
         self.export_tab.design_imported.connect(self._on_design_imported)
-        
+
         # Object visibility
         self.object_list.visibility_changed.connect(self._on_visibility_changed)
-        
+
         # Tab change
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
     
@@ -453,9 +461,13 @@ class MainWindow(QMainWindow):
             self.viewer_3d.update_geometry(self.design)
         else:
             self._viewer_needs_refresh = True
+
+        # Update mean surface tab (upstream change)
+        self.mean_surface_tab.set_design(self.design)
+
         self.status_bar.showMessage("Geometry updated")
         self.design_changed.emit()
-    
+
     def _on_dimensions_changed(self):
         """Handle main dimensions change."""
         # Update 3D viewer only when visible
@@ -463,6 +475,10 @@ class MainWindow(QMainWindow):
             self.viewer_3d.update_geometry(self.design)
         else:
             self._viewer_needs_refresh = True
+
+        # Update mean surface tab (upstream change)
+        self.mean_surface_tab.set_design(self.design)
+
         self.status_bar.showMessage("Dimensions updated")
         self.design_changed.emit()
     
@@ -470,21 +486,30 @@ class MainWindow(QMainWindow):
         """Handle design import."""
         self.design = design
         self.undo_stack.clear()
-        
+
         # Update all components
         self.design_tab.set_design(design)
+        self.mean_surface_tab.set_design(design)
         self.export_tab.set_design(design)
         self.viewer_3d.set_design(design)
-        
+
         self.status_bar.showMessage(f"Design '{design.name}' imported successfully")
     
     def _on_visibility_changed(self, name: str, visible: bool):
         """Handle object visibility toggle."""
         self.viewer_3d.set_object_visibility(name, visible)
+
+    def _on_mean_lines_changed(self, result):
+        """Handle mean lines update from Mean Surface tab."""
+        if result is not None:
+            self.viewer_3d.update_mean_lines(result.xyz_lines)
+        else:
+            self.viewer_3d.clear_mean_lines()
+        self.status_bar.showMessage("Mean lines updated")
     
     def _on_tab_changed(self, index: int):
         """Handle tab change - hide 3D viewer for Blade Properties tab."""
-        tab_names = ["Design", "Blade properties", "Export"]
+        tab_names = ["Design", "Blade properties", "Mean Surface", "Export"]
 
         # Get current tab name
         current_tab_name = self.tab_widget.tabText(index)
@@ -512,6 +537,12 @@ class MainWindow(QMainWindow):
                 if self._viewer_needs_refresh:
                     self.viewer_3d.update_geometry(self.design)
                     self._viewer_needs_refresh = False
+
+            # Update mean lines when switching to Mean Surface tab
+            if current_tab_name == "Mean Surface":
+                result = self.mean_surface_tab.get_result()
+                if result is not None:
+                    self.viewer_3d.update_mean_lines(result.xyz_lines)
 
             if 0 <= index < len(tab_names):
                 self.status_bar.showMessage(f"{tab_names[index]} tab")
