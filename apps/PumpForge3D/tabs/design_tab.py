@@ -52,8 +52,7 @@ class StyledSpinBox(QWidget):
         self.spinbox = QDoubleSpinBox()
         self.spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.spinbox.setFixedWidth(80)
-        self.spinbox.valueChanged.connect(self.valueChanged.emit)
-        self.spinbox.editingFinished.connect(self.editingFinished.emit)
+        self.spinbox.editingFinished.connect(self._on_editing_finished)
         layout.addWidget(self.spinbox)
         
         # Plus button
@@ -66,9 +65,15 @@ class StyledSpinBox(QWidget):
     
     def _increment(self):
         self.spinbox.stepUp()
+        self.valueChanged.emit(self.spinbox.value())
     
     def _decrement(self):
         self.spinbox.stepDown()
+        self.valueChanged.emit(self.spinbox.value())
+
+    def _on_editing_finished(self):
+        self.editingFinished.emit()
+        self.valueChanged.emit(self.spinbox.value())
     
     # Delegate common methods to inner spinbox
     def value(self) -> float:

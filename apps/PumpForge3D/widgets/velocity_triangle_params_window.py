@@ -189,21 +189,27 @@ class VelocityTriangleParamsWindow(QWidget):
     def _on_rpm_changed(self, value):
         """Handle RPM change."""
         self._rpm = value
+        self._emit_parameters()
 
     def _on_flow_rate_changed(self, value):
         """Handle flow rate change."""
         self._flow_rate_lps = value
+        self._emit_parameters()
 
     def _on_alpha1_changed(self, value):
         """Handle inlet angle change."""
         self._alpha1_deg = value
+        self._emit_parameters()
 
     def _on_apply(self):
         """Emit parameters when Apply is clicked."""
+        self._emit_parameters()
+
+    def _emit_parameters(self):
         params = {
-            'n': self._rpm,
-            'Q': self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
-            'alpha1': self._alpha1_deg
+            "n": self._rpm,
+            "Q": self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
+            "alpha1": self._alpha1_deg,
         }
         self.parametersChanged.emit(params)
 

@@ -410,9 +410,33 @@ class BladePropertiesTab(QWidget):
     def _on_params_changed(self, params: dict):
         """Handle parameter window changes."""
         # params = {'n': RPM, 'Q': m³/s, 'alpha1': degrees}
-        # Update triangle calculations with new parameters
-        # For now, just trigger a refresh
-        self._update_all()
+        inducer = self._state.get_inducer()
+        rpm = params.get("n", inducer.omega * 60.0 / (2.0 * math.pi))
+        flow_rate = params.get("Q", inducer.flow_rate)
+        alpha_deg = params.get("alpha1", math.degrees(inducer.alpha_in))
+        omega = rpm * 2.0 * math.pi / 60.0
+        alpha_rad = math.radians(alpha_deg)
+
+        area_in = math.pi * (inducer.r_in_tip ** 2 - inducer.r_in_hub ** 2)
+        area_out = math.pi * (inducer.r_out_tip ** 2 - inducer.r_out_hub ** 2)
+        c_m_in = flow_rate / area_in if area_in > 0.0 else inducer.c_m_in
+        c_m_out = flow_rate / area_out if area_out > 0.0 else inducer.c_m_out
+
+        operating_point = dict(inducer.operating_point)
+        operating_point["rpm"] = rpm
+        velocity_triangle_inputs = dict(inducer.velocity_triangle_inputs)
+        velocity_triangle_inputs.update(
+            {"alpha_in_deg": alpha_deg, "rpm": rpm, "flow_rate_m3s": flow_rate}
+        )
+        self._state.update_inducer_fields(
+            omega=omega,
+            flow_rate=flow_rate,
+            alpha_in=alpha_rad,
+            c_m_in=c_m_in,
+            c_m_out=c_m_out,
+            operating_point=operating_point,
+            velocity_triangle_inputs=velocity_triangle_inputs,
+        )
 
     def _toggle_params_window(self):
         """Show/hide the parameter input window."""

@@ -408,7 +408,7 @@ class Inducer:
             row_values["w"][idx] = tri.w
             row_values["τ"][idx] = tau
             if key.endswith("_le"):
-                row_values["i"][idx] = blade.beta_blade - tri.beta
+                row_values["i"][idx] = blade.incidence
             else:
                 row_values["δ"][idx] = blade.beta_blade - tri.beta
 
