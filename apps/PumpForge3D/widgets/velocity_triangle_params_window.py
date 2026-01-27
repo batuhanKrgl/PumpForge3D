@@ -22,6 +22,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 from blade_properties_widgets import StyledSpinBox
+from .numeric_input_dialog import NumericInputDialog
 
 
 class VelocityTriangleParamsWindow(QWidget):
@@ -156,7 +157,7 @@ class VelocityTriangleParamsWindow(QWidget):
         main_layout.addWidget(geom_group)
 
         # Apply button
-        apply_btn = QPushButton("Apply Parameters")
+        apply_btn = QPushButton("Edit Parameters")
         apply_btn.setStyleSheet("""
             QPushButton {
                 background-color: #89b4fa;
@@ -202,7 +203,30 @@ class VelocityTriangleParamsWindow(QWidget):
         self._emit_parameters()
 
     def _on_apply(self):
-        """Emit parameters when Apply is clicked."""
+        """Open a dialog to update parameters and emit on apply."""
+        accepted, rpm, flow_rate_lps, _, alpha1 = NumericInputDialog.get_coordinates(
+            self._rpm,
+            self._flow_rate_lps,
+            point_name="Operating Conditions",
+            parent=self,
+            z_label="Rotational speed n:",
+            r_label="Flow rate Q:",
+            angle_label="Inlet angle α₁:",
+            z_suffix=" RPM",
+            r_suffix=" L/s",
+            angle_suffix="°",
+            show_angle_lock=True,
+            show_angle_checkbox=False,
+            angle_value=self._alpha1_deg,
+        )
+        if not accepted:
+            return
+        self._rpm = rpm
+        self._flow_rate_lps = flow_rate_lps
+        self._alpha1_deg = alpha1
+        self.rpm_spin.setValue(self._rpm)
+        self.flow_rate_spin.setValue(self._flow_rate_lps)
+        self.alpha1_spin.setValue(self._alpha1_deg)
         self._emit_parameters()
 
     def _emit_parameters(self):
