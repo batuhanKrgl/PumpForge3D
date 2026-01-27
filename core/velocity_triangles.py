@@ -72,9 +72,7 @@ class InletTriangle:
 
     @property
     def beta_blade_effective(self) -> float:
-        if self.beta_blade is None:
-            return self.beta_blocked + self.incidence
-        return self.beta_blade
+        return self.beta_blocked + self.incidence
 
     @property
     def pitch(self) -> float:
