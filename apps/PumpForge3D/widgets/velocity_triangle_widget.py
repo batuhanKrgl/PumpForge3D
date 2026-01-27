@@ -21,6 +21,9 @@ from core.velocity_triangles import InletTriangle, OutletTriangle
 from ..app.state.app_state import AppState
 
 
+from ..utils.matplotlib_layout import apply_layout_to_figure
+
+
 class VelocityTriangleWidget(QWidget):
     """1×4 subplot velocity triangle widget with shared y limits."""
     
@@ -128,7 +131,7 @@ class VelocityTriangleWidget(QWidget):
 
         # Create 1×4 subplots with independent axes (no syncing)
         self.main_fig.clear()
-        axes = self.main_fig.subplots(1, 4, constrained_layout=True)
+        axes = self.main_fig.subplots(1, 4)
 
         triangles_data = [
             ("Hub @ Leading Edge", inlet_hub, inlet_hub.beta_blade_effective),
@@ -149,7 +152,11 @@ class VelocityTriangleWidget(QWidget):
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
         
+        self._apply_layout()
         self.main_canvas.draw()
+
+    def _apply_layout(self) -> None:
+        apply_layout_to_figure(self.main_fig)
 
     def _equalize_ylim_only(self, axes) -> None:
         y_lims = [ax.get_ylim() for ax in axes]
