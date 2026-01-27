@@ -1,4 +1,4 @@
-"""Tests for Blade Properties mapping to Inducer fields."""
+"""Tests for blade properties payload mapping into station fields."""
 
 import math
 
@@ -10,7 +10,7 @@ from apps.PumpForge3D.app.controllers.blade_properties_binder import (
 )
 
 
-def test_mapping_updates_inducer_fields():
+def test_payload_maps_station_thicknesses():
     inducer = Inducer(
         r_in_hub=0.03,
         r_in_tip=0.05,
@@ -32,19 +32,17 @@ def test_mapping_updates_inducer_fields():
     )
 
     inputs = {
-        "blade_number": 7,
-        "incidence_deg": 3.0,
+        "blade_number": 6,
+        "incidence_deg": 4.0,
         "slip_mode": "Mock",
-        "mock_slip_deg": 6.0,
-        "thickness": BladeThicknessMatrix(hub_inlet=2.0, tip_inlet=3.0, hub_outlet=1.5, tip_outlet=2.5),
+        "mock_slip_deg": 5.0,
+        "thickness": BladeThicknessMatrix(hub_inlet=1.0, tip_inlet=2.0, hub_outlet=3.0, tip_outlet=4.0),
     }
 
-    updates = map_blade_inputs_to_inducer_payload(inputs, inducer)
+    payload = map_blade_inputs_to_inducer_payload(inputs, inducer)
+    updated = inducer.update_from_blade_properties(payload)
 
-    assert updates["blade_number"] == 7
-    assert updates["incidence"] == math.radians(3.0)
-    assert updates["slip_angle_mock"] == math.radians(6.0)
-    assert updates["thickness"]["hub_le"] == 2.0 / 1000.0
-    assert updates["thickness"]["hub_te"] == 1.5 / 1000.0
-    assert updates["thickness"]["shroud_le"] == 3.0 / 1000.0
-    assert updates["thickness"]["shroud_te"] == 2.5 / 1000.0
+    assert updated.stations_blade["hub_le"].thickness == 0.001
+    assert updated.stations_blade["shroud_le"].thickness == 0.002
+    assert updated.stations_blade["hub_te"].thickness == 0.003
+    assert updated.stations_blade["shroud_te"].thickness == 0.004

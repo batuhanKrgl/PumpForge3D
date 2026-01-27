@@ -9,7 +9,6 @@ from typing import Dict
 from PySide6.QtCore import QObject, Signal
 
 from core.inducer import Inducer
-from core.velocity_triangles import InletTriangle, OutletTriangle
 
 
 def make_default_inducer() -> Inducer:
@@ -50,6 +49,7 @@ class AppState(QObject):
     inducer_changed = Signal(object)
     triangles_changed = Signal(dict)
     validation_failed = Signal(str)
+    inducer_info_changed = Signal(dict)
 
     def __init__(self, inducer: Inducer, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -67,6 +67,7 @@ class AppState(QObject):
         self.inducer_changed.emit(inducer)
         triangles = self._build_triangles_payload(inducer)
         self.triangles_changed.emit(triangles)
+        self.inducer_info_changed.emit(inducer.build_info_snapshot())
 
     def update_inducer_fields(self, **kwargs) -> None:
         try:
@@ -77,11 +78,31 @@ class AppState(QObject):
             return
         self.set_inducer(updated, source="update")
 
+    def apply_geometry_payload(self, payload: Dict[str, Dict[str, float]]) -> None:
+        updated = self._inducer.update_from_geometry(payload)
+        try:
+            updated.validate()
+        except ValueError as exc:
+            self.validation_failed.emit(str(exc))
+            return
+        self.set_inducer(updated, source="geometry")
+
+    def apply_blade_properties_payload(self, payload: Dict[str, object]) -> None:
+        updated = self._inducer.update_from_blade_properties(payload)
+        try:
+            updated.validate()
+        except ValueError as exc:
+            self.validation_failed.emit(str(exc))
+            return
+        self.set_inducer(updated, source="blade_properties")
+
     @staticmethod
     def _build_triangles_payload(inducer: Inducer) -> Dict[str, object]:
+        inlet_hub, outlet_hub = inducer.build_triangles_pair("hub")
+        inlet_shroud, outlet_shroud = inducer.build_triangles_pair("shroud")
         return {
-            "inlet_hub": inducer.make_inlet_triangle(inducer.r_in_hub),
-            "inlet_tip": inducer.make_inlet_triangle(inducer.r_in_tip),
-            "outlet_hub": inducer.make_outlet_triangle(inducer.r_out_hub),
-            "outlet_tip": inducer.make_outlet_triangle(inducer.r_out_tip),
+            "inlet_hub": inlet_hub,
+            "inlet_tip": inlet_shroud,
+            "outlet_hub": outlet_hub,
+            "outlet_tip": outlet_shroud,
         }

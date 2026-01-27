@@ -439,6 +439,7 @@ class MainWindow(QMainWindow):
         # Design tab signals
         self.design_tab.geometry_changed.connect(self._on_geometry_changed)
         self.design_tab.dimensions_changed.connect(self._on_dimensions_changed)
+        self.design_tab.geometry_committed.connect(self.state.apply_geometry_payload)
         
         # Export tab signals
         self.export_tab.design_imported.connect(self._on_design_imported)
@@ -508,6 +509,8 @@ class MainWindow(QMainWindow):
             self.main_splitter.setSizes([sizes[0] + sizes[1], 0])
 
             self.status_bar.showMessage("Blade properties tab (3D viewer hidden)")
+            if hasattr(self, "blade_binder"):
+                self.blade_binder.refresh_from_state(reason="tab_enter")
         else:
             # Show 3D viewer for other tabs
             if not self.right_splitter.isVisible():

@@ -280,6 +280,7 @@ class BladeInputsWidget(QWidget):
     incidenceChanged = Signal(float)
     slipModeChanged = Signal(str)
     mockSlipChanged = Signal(float)
+    inputsCommitted = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -364,6 +365,10 @@ class BladeInputsWidget(QWidget):
         self.incidence_spin.valueChanged.connect(self._on_incidence_changed)
         self.slip_mode_combo.currentTextChanged.connect(self._on_slip_mode_changed)
         self.mock_slip_spin.valueChanged.connect(self._on_mock_slip_changed)
+        self.blade_count_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.incidence_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.mock_slip_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.slip_mode_combo.currentTextChanged.connect(self.inputsCommitted.emit)
 
     def _on_blade_count_changed(self, value):
         self._blade_count = int(value)

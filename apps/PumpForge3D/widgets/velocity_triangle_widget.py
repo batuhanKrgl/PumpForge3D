@@ -20,6 +20,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
+from matplotlib import rcParams
 
 from core.velocity_triangles import InletTriangle, OutletTriangle
 from ..app.state.app_state import AppState
@@ -70,6 +71,7 @@ class VelocityTriangleWidget(QWidget):
         self._update_all()
     
     def _setup_ui(self):
+        rcParams["font.family"] = "DejaVu Sans"
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(2)
@@ -255,12 +257,9 @@ class VelocityTriangleWidget(QWidget):
         self._state = state
         self._state.triangles_changed.connect(self._on_triangles_changed)
         inducer = self._state.get_inducer()
-        self.set_triangles(
-            inducer.make_inlet_triangle(inducer.r_in_hub),
-            inducer.make_inlet_triangle(inducer.r_in_tip),
-            inducer.make_outlet_triangle(inducer.r_out_hub),
-            inducer.make_outlet_triangle(inducer.r_out_tip),
-        )
+        inlet_hub, outlet_hub = inducer.build_triangles_pair("hub")
+        inlet_tip, outlet_tip = inducer.build_triangles_pair("shroud")
+        self.set_triangles(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
 
     def _on_triangles_changed(self, payload: dict) -> None:
         inlet_hub = payload.get("inlet_hub")

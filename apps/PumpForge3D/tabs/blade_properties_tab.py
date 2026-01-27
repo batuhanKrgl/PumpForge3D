@@ -27,6 +27,7 @@ from ..widgets.blade_properties_widgets import (
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
+from ..widgets.inducer_info_table import InducerInfoTableWidget
 
 from pumpforge3d_core.analysis.blade_properties import (
     BladeProperties, calculate_slip
@@ -123,6 +124,8 @@ class BladePropertiesTab(QWidget):
         self._connect_signals()
         self._update_all()
         self._state.inducer_changed.connect(self._on_inducer_changed)
+        self._state.inducer_info_changed.connect(self._on_inducer_info_changed)
+        self._on_inducer_info_changed(self._state.get_inducer().build_info_snapshot())
 
     def _setup_ui(self):
         """Setup the 3-column tab layout."""
@@ -338,6 +341,16 @@ class BladePropertiesTab(QWidget):
         splitter.setHandleWidth(3)
         splitter.setChildrenCollapsible(False)
 
+        # === Inducer Info Table (top) ===
+        info_widget = QWidget()
+        info_layout = QVBoxLayout(info_widget)
+        info_layout.setContentsMargins(4, 4, 4, 4)
+        info_layout.setSpacing(4)
+
+        self.inducer_info_table = InducerInfoTableWidget()
+        info_layout.addWidget(self.inducer_info_table)
+        splitter.addWidget(info_widget)
+
         # === Analysis Plots (top) ===
         plots_widget = QWidget()
         plots_layout = QVBoxLayout(plots_widget)
@@ -360,9 +373,10 @@ class BladePropertiesTab(QWidget):
 
         splitter.addWidget(details_widget)
 
-        # Set splitter proportions: 60% plots, 40% details
-        splitter.setStretchFactor(0, 60)
-        splitter.setStretchFactor(1, 40)
+        # Set splitter proportions: info 45%, plots 30%, details 25%
+        splitter.setStretchFactor(0, 45)
+        splitter.setStretchFactor(1, 30)
+        splitter.setStretchFactor(2, 25)
 
         panel_layout.addWidget(splitter)
 
@@ -380,16 +394,17 @@ class BladePropertiesTab(QWidget):
 
     def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         inducer = self._state.get_inducer()
-        inlet_hub = inducer.make_inlet_triangle(inducer.r_in_hub)
-        inlet_tip = inducer.make_inlet_triangle(inducer.r_in_tip)
-        outlet_hub = inducer.make_outlet_triangle(inducer.r_out_hub)
-        outlet_tip = inducer.make_outlet_triangle(inducer.r_out_tip)
+        inlet_hub, outlet_hub = inducer.build_triangles_pair("hub")
+        inlet_tip, outlet_tip = inducer.build_triangles_pair("shroud")
         return inlet_hub, inlet_tip, outlet_hub, outlet_tip
 
     def _on_inducer_changed(self, inducer):
         """Handle inducer changes from AppState."""
         self._update_triangle_details()
         self._update_analysis_plots()
+
+    def _on_inducer_info_changed(self, snapshot: dict):
+        self.inducer_info_table.set_snapshot(snapshot)
 
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""

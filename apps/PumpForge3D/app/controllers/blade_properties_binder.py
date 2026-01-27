@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import math
 from typing import Any, Dict
 
@@ -17,7 +16,7 @@ from core.inducer import Inducer
 from ..state.app_state import AppState
 
 
-def map_blade_inputs_to_inducer_kwargs(
+def map_blade_inputs_to_inducer_payload(
     inputs: Dict[str, Any],
     inducer: Inducer,
 ) -> Dict[str, Any]:
@@ -29,8 +28,12 @@ def map_blade_inputs_to_inducer_kwargs(
     incidence_rad = math.radians(inputs["incidence_deg"])
 
     thickness: BladeThicknessMatrix = inputs["thickness"]
-    thickness_in_mm = (thickness.hub_inlet + thickness.tip_inlet) / 2.0
-    thickness_out_mm = (thickness.hub_outlet + thickness.tip_outlet) / 2.0
+    thickness_map = {
+        "hub_le": thickness.hub_inlet / 1000.0,
+        "hub_te": thickness.hub_outlet / 1000.0,
+        "shroud_le": thickness.tip_inlet / 1000.0,
+        "shroud_te": thickness.tip_outlet / 1000.0,
+    }
 
     slip_mode = inputs["slip_mode"]
     mock_slip_deg = inputs["mock_slip_deg"]
@@ -49,10 +52,9 @@ def map_blade_inputs_to_inducer_kwargs(
 
     return {
         "blade_number": blade_number,
-        "incidence_in": incidence_rad,
-        "slip_out": slip_rad,
-        "thickness_in": thickness_in_mm / 1000.0,
-        "thickness_out": thickness_out_mm / 1000.0,
+        "incidence": incidence_rad,
+        "slip_angle_mock": slip_rad,
+        "thickness": thickness_map,
     }
 
 
@@ -72,10 +74,7 @@ class BladePropertiesBinder(QObject):
         inputs = self._widget.get_blade_inputs_widget()
         thickness = self._widget.get_thickness_widget()
 
-        inputs.bladeCountChanged.connect(self._schedule_update)
-        inputs.incidenceChanged.connect(self._schedule_update)
-        inputs.slipModeChanged.connect(self._schedule_update)
-        inputs.mockSlipChanged.connect(self._schedule_update)
+        inputs.inputsCommitted.connect(self._schedule_update)
         thickness.thicknessChanged.connect(self._schedule_update)
 
         self._schedule_update()
@@ -86,16 +85,12 @@ class BladePropertiesBinder(QObject):
     def _apply_update(self) -> None:
         inducer = self._state.get_inducer()
         inputs = self._collect_inputs()
-        updates = map_blade_inputs_to_inducer_kwargs(inputs, inducer)
+        payload = map_blade_inputs_to_inducer_payload(inputs, inducer)
+        self._state.apply_blade_properties_payload(payload)
 
-        try:
-            updated = replace(inducer, **updates)
-            updated.validate()
-        except ValueError as exc:
-            self._state.validation_failed.emit(str(exc))
-            return
-
-        self._state.set_inducer(updated, source="blade_properties")
+    def refresh_from_state(self, reason: str = "refresh") -> None:
+        """Trigger a refresh from the current state without changing inputs."""
+        self._state.set_inducer(self._state.get_inducer(), source=reason)
 
     def _collect_inputs(self) -> Dict[str, Any]:
         blade_inputs = self._widget.get_blade_inputs_widget()

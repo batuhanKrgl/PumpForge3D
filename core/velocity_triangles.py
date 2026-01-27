@@ -116,6 +116,8 @@ class OutletTriangle:
     blade_number: int
     blockage: float = 1.0
     slip: float = 0.0
+    slip_angle_mock: float | None = None
+    slip_factor_gamma: float | None = None
 
     @property
     def u(self) -> float:
@@ -174,6 +176,8 @@ class OutletTriangle:
             "blade_number": int(self.blade_number),
             "blockage": float(self.blockage),
             "slip": float(self.slip),
+            "slip_angle_mock": float(self.slip_angle_mock) if self.slip_angle_mock is not None else None,
+            "slip_factor_gamma": float(self.slip_factor_gamma) if self.slip_factor_gamma is not None else None,
             "deviation": float(self.deviation),
             "u": float(self.u),
             "cu": float(self.cu),

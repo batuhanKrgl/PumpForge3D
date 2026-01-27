@@ -163,6 +163,7 @@ class DesignTab(QWidget):
     
     geometry_changed = Signal()
     dimensions_changed = Signal()
+    geometry_committed = Signal(dict)
     
     def __init__(self, design: InducerDesign, undo_stack=None, parent=None):
         super().__init__(parent)
@@ -541,6 +542,7 @@ class DesignTab(QWidget):
         self._update_analysis_plots()
         self.dimensions_changed.emit()
         self.geometry_changed.emit()
+        self.geometry_committed.emit(self._build_geometry_payload())
     
     def _set_display_option(self, option: str, value: bool):
         """Set a diagram display option (NOT undoable)."""
@@ -619,6 +621,19 @@ class DesignTab(QWidget):
         self._update_validation()
         self._update_analysis_plots()
         self.geometry_changed.emit()
+        self.geometry_committed.emit(self._build_geometry_payload())
+
+    def _build_geometry_payload(self) -> dict:
+        """Build a geometry payload for Inducer station updates."""
+        dims = self.design.main_dims
+        z_in = 0.0
+        z_out = dims.L / 1000.0
+        return {
+            "hub_le": {"z": z_in, "r": dims.r_h_in / 1000.0},
+            "hub_te": {"z": z_out, "r": dims.r_h_out / 1000.0},
+            "shroud_le": {"z": z_in, "r": dims.r_t_in / 1000.0},
+            "shroud_te": {"z": z_out, "r": dims.r_t_out / 1000.0},
+        }
     
     def _sync_edge_positions_from_design(self):
         """Sync LE/TE position spinboxes from current design values."""
