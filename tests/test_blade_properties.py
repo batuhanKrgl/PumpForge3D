@@ -48,10 +48,11 @@ class TestWiesnerSlip:
         # Expected: γ = 1 - √(sin 60°) / 5^0.7
         # sin(60°) ≈ 0.866, √0.866 ≈ 0.931
         # 5^0.7 ≈ 3.62
-        # γ ≈ 1 - 0.931/3.62 ≈ 1 - 0.257 ≈ 0.743
+        # γ ≈ 1 - 0.931/3.62 ≈ 1 - 0.257 ≈ 0.698
 
         assert result.method == "Wiesner"
-        assert 0.7 < result.gamma < 0.8
+        expected_gamma = 1.0 - math.sqrt(math.sin(math.radians(60.0))) / (5.0 ** 0.7)
+        assert result.gamma == pytest.approx(expected_gamma, rel=1e-6)
         assert result.f_i == 1.0
         assert result.k_w == 1.0
 

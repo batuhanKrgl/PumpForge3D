@@ -34,6 +34,14 @@ class NumericInputDialog(QDialog):
         point_index: int = 0,
         angle_locked: bool = False,
         angle_value: float = 0.0,
+        z_label: str = "Z (axial):",
+        r_label: str = "R (radial):",
+        angle_label: str = "Angle:",
+        z_suffix: str = " mm",
+        r_suffix: str = " mm",
+        angle_suffix: str = "°",
+        show_angle_lock: Optional[bool] = None,
+        show_angle_checkbox: bool = True,
         parent=None
     ):
         super().__init__(parent)
@@ -111,9 +119,34 @@ class NumericInputDialog(QDialog):
         shadow.setColor(QColor(0, 0, 0, 80))
         self.setGraphicsEffect(shadow)
         
-        self._setup_ui(current_z, current_r, point_name)
+        self._setup_ui(
+            current_z,
+            current_r,
+            point_name,
+            z_label,
+            r_label,
+            angle_label,
+            z_suffix,
+            r_suffix,
+            angle_suffix,
+            show_angle_lock,
+            show_angle_checkbox,
+        )
     
-    def _setup_ui(self, current_z: float, current_r: float, point_name: str):
+    def _setup_ui(
+        self,
+        current_z: float,
+        current_r: float,
+        point_name: str,
+        z_label: str,
+        r_label: str,
+        angle_label: str,
+        z_suffix: str,
+        r_suffix: str,
+        angle_suffix: str,
+        show_angle_lock: Optional[bool],
+        show_angle_checkbox: bool,
+    ):
         """Create the dialog UI."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -145,39 +178,43 @@ class NumericInputDialog(QDialog):
         self.z_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.z_spin.setRange(-1000, 10000)
         self.z_spin.setDecimals(2)
-        self.z_spin.setSuffix(" mm")
+        self.z_spin.setSuffix(z_suffix)
         self.z_spin.setValue(current_z)
         self.z_spin.setFixedWidth(100)
-        form.addRow("Z (axial):", self.z_spin)
+        form.addRow(z_label, self.z_spin)
         
         # R coordinate
         self.r_spin = QDoubleSpinBox()
         self.r_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.r_spin.setRange(0, 10000)
         self.r_spin.setDecimals(2)
-        self.r_spin.setSuffix(" mm")
+        self.r_spin.setSuffix(r_suffix)
         self.r_spin.setValue(current_r)
         self.r_spin.setFixedWidth(100)
-        form.addRow("R (radial):", self.r_spin)
+        form.addRow(r_label, self.r_spin)
         
         layout.addLayout(form)
         
         # Angle Lock section (only for P1 and P3)
-        if self.point_index in [1, 3]:
+        should_show_angle = show_angle_lock if show_angle_lock is not None else self.point_index in [1, 3]
+        if should_show_angle:
             sep2 = QFrame()
             sep2.setFrameShape(QFrame.Shape.HLine)
             sep2.setStyleSheet("background: #45475a;")
             layout.addWidget(sep2)
             
-            lock_label = QLabel("Tangent Constraint")
+            lock_label = QLabel("Tangent Constraint" if show_angle_checkbox else "Angle")
             lock_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #a6adc8;")
             layout.addWidget(lock_label)
             
             # Lock checkbox
-            self.angle_lock_check = QCheckBox("Lock tangent angle")
-            self.angle_lock_check.setChecked(self._angle_locked)
-            self.angle_lock_check.toggled.connect(self._on_angle_lock_toggled)
-            layout.addWidget(self.angle_lock_check)
+            if show_angle_checkbox:
+                self.angle_lock_check = QCheckBox("Lock tangent angle")
+                self.angle_lock_check.setChecked(self._angle_locked)
+                self.angle_lock_check.toggled.connect(self._on_angle_lock_toggled)
+                layout.addWidget(self.angle_lock_check)
+            else:
+                self.angle_lock_check = None
             
             # Angle value form - always visible, editable when locked
             angle_form = QFormLayout()
@@ -186,20 +223,21 @@ class NumericInputDialog(QDialog):
             self.angle_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             self.angle_spin.setRange(-90, 90)
             self.angle_spin.setDecimals(1)
-            self.angle_spin.setSuffix("°")
+            self.angle_spin.setSuffix(angle_suffix)
             self.angle_spin.setValue(self._angle_value)
             self.angle_spin.setFixedWidth(80)
             # Always visible, but only editable when locked
-            self.angle_spin.setReadOnly(not self._angle_locked)
-            if not self._angle_locked:
+            self.angle_spin.setReadOnly(show_angle_checkbox and not self._angle_locked)
+            if show_angle_checkbox and not self._angle_locked:
                 self.angle_spin.setStyleSheet("color: #6c7086;")  # Greyed out
-            angle_form.addRow("Angle:", self.angle_spin)
+            angle_form.addRow(angle_label, self.angle_spin)
             layout.addLayout(angle_form)
-            
-            hint = QLabel("Locks CP movement to fixed angle from endpoint")
-            hint.setStyleSheet("font-size: 10px; color: #6c7086;")
-            hint.setWordWrap(True)
-            layout.addWidget(hint)
+
+            if show_angle_checkbox:
+                hint = QLabel("Locks CP movement to fixed angle from endpoint")
+                hint.setStyleSheet("font-size: 10px; color: #6c7086;")
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
         else:
             self.angle_lock_check = None
         
@@ -251,7 +289,7 @@ class NumericInputDialog(QDialog):
     
     def get_angle_locked(self) -> bool:
         """Get the angle lock state."""
-        if self.angle_lock_check:
+        if self.angle_lock_check is not None:
             return self.angle_lock_check.isChecked()
         return self._angle_locked
     
@@ -270,7 +308,15 @@ class NumericInputDialog(QDialog):
         curve_name: str = "hub",
         point_index: int = 0,
         angle_locked: bool = False,
-        angle_value: float = 0.0
+        angle_value: float = 0.0,
+        z_label: str = "Z (axial):",
+        r_label: str = "R (radial):",
+        angle_label: str = "Angle:",
+        z_suffix: str = " mm",
+        r_suffix: str = " mm",
+        angle_suffix: str = "°",
+        show_angle_lock: Optional[bool] = None,
+        show_angle_checkbox: bool = True,
     ) -> Tuple[bool, float, float, bool, float]:
         """
         Static method to show dialog and get coordinates.
@@ -280,7 +326,19 @@ class NumericInputDialog(QDialog):
         """
         dialog = NumericInputDialog(
             current_z, current_r, point_name, 
-            curve_name, point_index, angle_locked, angle_value, parent
+            curve_name,
+            point_index,
+            angle_locked,
+            angle_value,
+            z_label,
+            r_label,
+            angle_label,
+            z_suffix,
+            r_suffix,
+            angle_suffix,
+            show_angle_lock,
+            show_angle_checkbox,
+            parent,
         )
         result = dialog.exec()
         
@@ -288,4 +346,3 @@ class NumericInputDialog(QDialog):
             z, r = dialog.get_values()
             return (True, z, r, dialog.get_angle_locked(), dialog.get_angle_value())
         return (False, current_z, current_r, angle_locked, angle_value)
-

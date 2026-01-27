@@ -72,8 +72,7 @@ class StyledSpinBox(QWidget):
         self.spinbox = QDoubleSpinBox()
         self.spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.spinbox.setFixedWidth(80)
-        self.spinbox.valueChanged.connect(self.valueChanged.emit)
-        self.spinbox.editingFinished.connect(self.editingFinished.emit)
+        self.spinbox.editingFinished.connect(self._on_editing_finished)
         layout.addWidget(self.spinbox)
 
         # Plus button - larger for better touch target
@@ -98,9 +97,15 @@ class StyledSpinBox(QWidget):
 
     def _increment(self):
         self.spinbox.stepUp()
+        self.valueChanged.emit(self.spinbox.value())
 
     def _decrement(self):
         self.spinbox.stepDown()
+        self.valueChanged.emit(self.spinbox.value())
+
+    def _on_editing_finished(self):
+        self.editingFinished.emit()
+        self.valueChanged.emit(self.spinbox.value())
 
     # Delegate methods to inner spinbox
     def value(self) -> float:
@@ -277,16 +282,19 @@ class BladeInputsWidget(QWidget):
     """
 
     bladeCountChanged = Signal(int)
-    incidenceChanged = Signal(float)
+    incidenceChanged = Signal(float, float)
     slipModeChanged = Signal(str)
-    mockSlipChanged = Signal(float)
+    mockSlipChanged = Signal(float, float)
+    inputsCommitted = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._blade_count = 3
-        self._incidence = 0.0
+        self._incidence_hub = 0.0
+        self._incidence_tip = 0.0
         self._slip_mode = "Mock"
-        self._mock_slip = 5.0
+        self._mock_slip_hub = 5.0
+        self._mock_slip_tip = 5.0
         self._setup_ui()
         self._connect_signals()
 
@@ -308,15 +316,25 @@ class BladeInputsWidget(QWidget):
         layout.addRow("z:", blade_count_spin)
 
         # Incidence i (degrees) - with subscript
-        incidence_spin = StyledSpinBox()
-        incidence_spin.setRange(-20.0, 20.0)
-        incidence_spin.setDecimals(1)
-        incidence_spin.setSingleStep(0.5)
-        incidence_spin.setSuffix("°")
-        incidence_spin.setValue(self._incidence)
-        incidence_spin.setToolTip("Incidence angle: β₁ - βB₁ (flow angle - blade angle)")
-        self.incidence_spin = incidence_spin
-        layout.addRow(create_subscript_label("i", "1"), incidence_spin)
+        incidence_hub_spin = StyledSpinBox()
+        incidence_hub_spin.setRange(-20.0, 20.0)
+        incidence_hub_spin.setDecimals(1)
+        incidence_hub_spin.setSingleStep(0.5)
+        incidence_hub_spin.setSuffix("°")
+        incidence_hub_spin.setValue(self._incidence_hub)
+        incidence_hub_spin.setToolTip("Hub incidence angle: β₁ - βB₁ (flow angle - blade angle)")
+        self.incidence_hub_spin = incidence_hub_spin
+        layout.addRow(create_subscript_label("i", "1,hub"), incidence_hub_spin)
+
+        incidence_tip_spin = StyledSpinBox()
+        incidence_tip_spin.setRange(-20.0, 20.0)
+        incidence_tip_spin.setDecimals(1)
+        incidence_tip_spin.setSingleStep(0.5)
+        incidence_tip_spin.setSuffix("°")
+        incidence_tip_spin.setValue(self._incidence_tip)
+        incidence_tip_spin.setToolTip("Tip incidence angle: β₁ - βB₁ (flow angle - blade angle)")
+        self.incidence_tip_spin = incidence_tip_spin
+        layout.addRow(create_subscript_label("i", "1,tip"), incidence_tip_spin)
 
         # Slip mode (combobox)
         slip_mode_combo = QComboBox()
@@ -345,33 +363,59 @@ class BladeInputsWidget(QWidget):
         layout.addRow("Slip:", slip_mode_combo)
 
         # Mock slip δ (degrees, conditional)
-        mock_slip_spin = StyledSpinBox()
-        mock_slip_spin.setRange(-30.0, 30.0)
-        mock_slip_spin.setDecimals(1)
-        mock_slip_spin.setSingleStep(0.5)
-        mock_slip_spin.setSuffix("°")
-        mock_slip_spin.setValue(self._mock_slip)
-        mock_slip_spin.setToolTip("Manual slip angle (δ): deviation from blade angle at outlet")
-        self.mock_slip_spin = mock_slip_spin
-        self.mock_slip_label = QLabel("δ:")
-        self.mock_slip_label.setToolTip("Slip angle (manual value)")
-        layout.addRow(self.mock_slip_label, mock_slip_spin)
+        mock_slip_hub_spin = StyledSpinBox()
+        mock_slip_hub_spin.setRange(-30.0, 30.0)
+        mock_slip_hub_spin.setDecimals(1)
+        mock_slip_hub_spin.setSingleStep(0.5)
+        mock_slip_hub_spin.setSuffix("°")
+        mock_slip_hub_spin.setValue(self._mock_slip_hub)
+        mock_slip_hub_spin.setToolTip("Hub slip angle (δ): deviation from blade angle at outlet")
+        self.mock_slip_hub_spin = mock_slip_hub_spin
+        self.mock_slip_hub_label = QLabel("δ hub:")
+        self.mock_slip_hub_label.setToolTip("Slip angle (hub)")
+        layout.addRow(self.mock_slip_hub_label, mock_slip_hub_spin)
+
+        mock_slip_tip_spin = StyledSpinBox()
+        mock_slip_tip_spin.setRange(-30.0, 30.0)
+        mock_slip_tip_spin.setDecimals(1)
+        mock_slip_tip_spin.setSingleStep(0.5)
+        mock_slip_tip_spin.setSuffix("°")
+        mock_slip_tip_spin.setValue(self._mock_slip_tip)
+        mock_slip_tip_spin.setToolTip("Tip slip angle (δ): deviation from blade angle at outlet")
+        self.mock_slip_tip_spin = mock_slip_tip_spin
+        self.mock_slip_tip_label = QLabel("δ tip:")
+        self.mock_slip_tip_label.setToolTip("Slip angle (tip)")
+        layout.addRow(self.mock_slip_tip_label, mock_slip_tip_spin)
 
         self._update_mock_slip_visibility()
 
     def _connect_signals(self):
         self.blade_count_spin.valueChanged.connect(self._on_blade_count_changed)
-        self.incidence_spin.valueChanged.connect(self._on_incidence_changed)
+        self.incidence_hub_spin.valueChanged.connect(self._on_incidence_changed)
+        self.incidence_tip_spin.valueChanged.connect(self._on_incidence_changed)
         self.slip_mode_combo.currentTextChanged.connect(self._on_slip_mode_changed)
-        self.mock_slip_spin.valueChanged.connect(self._on_mock_slip_changed)
+        self.mock_slip_hub_spin.valueChanged.connect(self._on_mock_slip_changed)
+        self.mock_slip_tip_spin.valueChanged.connect(self._on_mock_slip_changed)
+        self.blade_count_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.incidence_hub_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.incidence_tip_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.mock_slip_hub_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.mock_slip_tip_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.blade_count_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.incidence_hub_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.incidence_tip_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.mock_slip_hub_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.mock_slip_tip_spin.editingFinished.connect(self.inputsCommitted.emit)
+        self.slip_mode_combo.currentTextChanged.connect(self.inputsCommitted.emit)
 
     def _on_blade_count_changed(self, value):
         self._blade_count = int(value)
         self.bladeCountChanged.emit(self._blade_count)
 
     def _on_incidence_changed(self, value):
-        self._incidence = value
-        self.incidenceChanged.emit(value)
+        self._incidence_hub = self.incidence_hub_spin.value()
+        self._incidence_tip = self.incidence_tip_spin.value()
+        self.incidenceChanged.emit(self._incidence_hub, self._incidence_tip)
 
     def _on_slip_mode_changed(self, mode):
         self._slip_mode = mode
@@ -379,26 +423,35 @@ class BladeInputsWidget(QWidget):
         self.slipModeChanged.emit(mode)
 
     def _on_mock_slip_changed(self, value):
-        self._mock_slip = value
-        self.mockSlipChanged.emit(value)
+        self._mock_slip_hub = self.mock_slip_hub_spin.value()
+        self._mock_slip_tip = self.mock_slip_tip_spin.value()
+        self.mockSlipChanged.emit(self._mock_slip_hub, self._mock_slip_tip)
 
     def _update_mock_slip_visibility(self):
         """Show/hide mock slip input based on slip mode."""
         is_mock = self._slip_mode == "Mock"
-        self.mock_slip_spin.setVisible(is_mock)
-        self.mock_slip_label.setVisible(is_mock)
+        self.mock_slip_hub_spin.setVisible(is_mock)
+        self.mock_slip_hub_label.setVisible(is_mock)
+        self.mock_slip_tip_spin.setVisible(is_mock)
+        self.mock_slip_tip_label.setVisible(is_mock)
 
     def get_blade_count(self) -> int:
         return self._blade_count
 
-    def get_incidence(self) -> float:
-        return self._incidence
+    def get_incidence_hub(self) -> float:
+        return self._incidence_hub
+
+    def get_incidence_tip(self) -> float:
+        return self._incidence_tip
 
     def get_slip_mode(self) -> str:
         return self._slip_mode
 
-    def get_mock_slip(self) -> float:
-        return self._mock_slip
+    def get_mock_slip_hub(self) -> float:
+        return self._mock_slip_hub
+
+    def get_mock_slip_tip(self) -> float:
+        return self._mock_slip_tip
 
 
 class SlipCalculationWidget(QWidget):
