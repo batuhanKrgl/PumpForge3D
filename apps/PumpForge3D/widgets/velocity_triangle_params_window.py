@@ -16,12 +16,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-# Import StyledSpinBox from blade_properties_widgets
-import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
-from blade_properties_widgets import StyledSpinBox
-from numeric_input_dialog import NumericInputDialog
+from apps.PumpForge3D.widgets.blade_properties_widgets import StyledSpinBox
+from apps.PumpForge3D.widgets.numeric_input_dialog import NumericInputDialog
 
 
 class VelocityTriangleParamsWindow(QWidget):
