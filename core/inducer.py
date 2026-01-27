@@ -184,8 +184,7 @@ class Inducer:
         geom = self.stations_geom[station_key]
         blade = self.stations_blade[station_key]
         flow = self.stations_flow[station_key]
-        tau = self._compute_tau(blade, geom)
-        blockage = self._resolve_blockage(blade, tau)
+        blockage = blade.blockage if blade.blockage is not None else self.blockage_in
         return InletTriangle(
             r=geom.r,
             omega=flow.omega,
@@ -201,8 +200,7 @@ class Inducer:
         geom = self.stations_geom[station_key]
         blade = self.stations_blade[station_key]
         flow = self.stations_flow[station_key]
-        tau = self._compute_tau(blade, geom)
-        blockage = self._resolve_blockage(blade, tau)
+        blockage = blade.blockage if blade.blockage is not None else self.blockage_out
         slip_angle = blade.slip_angle_mock if blade.slip_angle_mock is not None else self.slip_out
         return OutletTriangle(
             r=geom.r,
@@ -221,15 +219,6 @@ class Inducer:
             return None
         tau = (blade.blade_number * blade.thickness) / denom
         return max(0.0, tau)
-
-    def _resolve_blockage(self, blade: StationBlade, tau: Optional[float]) -> float:
-        if blade.blockage is not None:
-            return max(1.0, blade.blockage)
-        if tau is None:
-            return 1.0
-        if tau >= 1.0:
-            return 1.0
-        return max(1.0, 1.0 / (1.0 - tau))
 
     def _fill_pair_rows(
         self,
@@ -392,7 +381,11 @@ class Inducer:
             flow = self.stations_flow[key]
             tri = station_triangles[key]
             tau = self._compute_tau(blade, geom)
-            blockage_factor = self._resolve_blockage(blade, tau)
+            blockage_factor = (
+                blade.blockage
+                if blade.blockage is not None
+                else (self.blockage_in if key.endswith("_le") else self.blockage_out)
+            )
             cm_blocked = tri.c_m * blockage_factor
 
             row_values["z"][idx] = geom.z
