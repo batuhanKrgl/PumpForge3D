@@ -129,6 +129,13 @@ class StyledSpinBox(QWidget):
     def blockSignals(self, block: bool) -> bool:
         return self.spinbox.blockSignals(block)
 
+    def setReadOnly(self, read_only: bool) -> None:
+        self.spinbox.setReadOnly(read_only)
+
+    def setButtonsEnabled(self, enabled: bool) -> None:
+        self.minus_btn.setEnabled(enabled)
+        self.plus_btn.setEnabled(enabled)
+
 
 class BladeThicknessMatrixWidget(QWidget):
     """
