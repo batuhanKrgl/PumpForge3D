@@ -140,9 +140,9 @@ class BladePropertiesTab(QWidget):
         # Set initial proportions: 23% | 52% | 25% (for 1400px total = ~320 | 728 | 350)
         total_hint = 1400
         self.main_splitter.setSizes([int(total_hint * 0.23), int(total_hint * 0.52), int(total_hint * 0.25)])
-        self.main_splitter.setStretchFactor(0, 23)  # Inputs: less stretch
-        self.main_splitter.setStretchFactor(1, 52)  # Triangles: most stretch
-        self.main_splitter.setStretchFactor(2, 25)  # Analysis: moderate stretch
+        self.main_splitter.setStretchFactor(0, 0)  # Inputs: fixed/preferred
+        self.main_splitter.setStretchFactor(1, 1)  # Triangles: expanding
+        self.main_splitter.setStretchFactor(2, 0)  # Analysis: fixed/preferred
 
         main_layout.addWidget(self.main_splitter)
 
@@ -150,8 +150,7 @@ class BladePropertiesTab(QWidget):
         """Create left input panel with collapsible groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(280)
-        panel.setMaximumWidth(380)
+        panel.setMinimumWidth(240)
         panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
@@ -279,8 +278,7 @@ class BladePropertiesTab(QWidget):
         """Create right panel with analysis plots and triangle details."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(320)
-        panel.setMaximumWidth(500)
+        panel.setMinimumWidth(280)
         panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {

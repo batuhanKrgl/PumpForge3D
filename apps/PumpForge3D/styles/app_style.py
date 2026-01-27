@@ -20,7 +20,7 @@ GROUP_HEADER_STYLE = """
 """
 
 FORM_LABEL_STYLE = """
-    QLabel {
+    QLabel#FormLabel {
         color: #cdd6f4;
         font-size: 11px;
         font-weight: 600;
@@ -84,7 +84,17 @@ def apply_section_header_style(button: QPushButton) -> None:
 
 
 def apply_form_label_style(label: QLabel) -> None:
-    label.setStyleSheet(FORM_LABEL_STYLE)
+    label.setObjectName("FormLabel")
+    label.setAutoFillBackground(False)
+    label.setStyleSheet(
+        FORM_LABEL_STYLE
+        + """
+        QLabel#FormLabel {
+            background: transparent;
+            border: none;
+        }
+        """
+    )
 
 
 def apply_numeric_spinbox_style(spinbox: QAbstractSpinBox) -> None:

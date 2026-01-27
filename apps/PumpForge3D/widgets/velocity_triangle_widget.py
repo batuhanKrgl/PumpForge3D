@@ -4,17 +4,16 @@ import math
 import numpy as np
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QSizePolicy, QTableWidget, QTableWidgetItem,
-    QHeaderView
+    QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QTableWidget, QTableWidgetItem,
+    QHeaderView, QLabel
 )
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap, QPainter, QPen, QColor
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.patches import Arc
-from matplotlib.lines import Line2D
 from matplotlib import rcParams
 
 from core.velocity_triangles import InletTriangle, OutletTriangle
@@ -88,6 +87,8 @@ class VelocityTriangleWidget(QWidget):
             QToolButton:hover { background-color: #45475a; }
         """)
 
+        self.legend_widget = self._build_legend_widget()
+
         # Data viewer table
         self.data_viewer = QTableWidget()
         self.data_viewer.setColumnCount(5)
@@ -117,6 +118,7 @@ class VelocityTriangleWidget(QWidget):
 
         main_layout.addWidget(self.toolbar)
         main_layout.addWidget(self.main_canvas, 1)
+        main_layout.addWidget(self.legend_widget)
         main_layout.addWidget(self.data_viewer)
 
         # Hide data viewer by default (can be shown via set_data_viewer_visible)
@@ -125,6 +127,86 @@ class VelocityTriangleWidget(QWidget):
     def _connect_signals(self):
         """No longer needed - parameters set via public methods."""
         pass
+
+    def _build_legend_widget(self) -> QWidget:
+        legend = QWidget()
+        legend.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        legend.setFixedHeight(32)
+        legend_layout = QHBoxLayout(legend)
+        legend_layout.setContentsMargins(8, 4, 8, 4)
+        legend_layout.setSpacing(12)
+
+        legend_items = [
+            ("Blue: c (absolute)", self.COLOR_C, 2, Qt.PenStyle.SolidLine),
+            ("Green: w (relative)", self.COLOR_W, 2, Qt.PenStyle.SolidLine),
+            ("Orange: u (blade speed)", self.COLOR_U, 2, Qt.PenStyle.SolidLine),
+            ("Dashed: blocked flow", "#cdd6f4", 2, Qt.PenStyle.DashLine),
+            ("Thick: blade angle", "#cdd6f4", 4, Qt.PenStyle.SolidLine),
+            ("Solid: velocity vectors", "#cdd6f4", 2, Qt.PenStyle.SolidLine),
+        ]
+
+        for text, color, width, style in legend_items:
+            legend_layout.addWidget(self._legend_item(text, color, width, style))
+
+        legend_layout.addStretch()
+        return legend
+
+    def _legend_item(self, text: str, color: str, width: int, style: Qt.PenStyle) -> QWidget:
+        item = QWidget()
+        item_layout = QHBoxLayout(item)
+        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setSpacing(6)
+
+        sample = QLabel()
+        sample.setPixmap(self._line_pixmap(color, width, style))
+        label = QLabel(text)
+        label.setStyleSheet("color: #cdd6f4; font-size: 9px;")
+
+        item_layout.addWidget(sample)
+        item_layout.addWidget(label)
+        return item
+
+    def _line_pixmap(self, color: str, width: int, style: Qt.PenStyle) -> QPixmap:
+        pixmap = QPixmap(36, 8)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        pen = QPen()
+        pen.setColor(QColor(color))
+        pen.setWidth(width)
+        pen.setStyle(style)
+        painter.setPen(pen)
+        painter.drawLine(2, pixmap.height() // 2, pixmap.width() - 2, pixmap.height() // 2)
+        painter.end()
+        return pixmap
+
+    def _clamp_value(self, value: float, min_val: float, max_val: float) -> float:
+        return max(min_val, min(value, max_val))
+
+    def _draw_angle_arc(
+        self,
+        ax,
+        origin: np.ndarray,
+        v1_end: np.ndarray,
+        v2_end: np.ndarray,
+        radius: float,
+        label: str,
+        color: str,
+    ) -> None:
+        theta1 = math.degrees(math.atan2(v1_end[1] - origin[1], v1_end[0] - origin[0]))
+        theta2 = math.degrees(math.atan2(v2_end[1] - origin[1], v2_end[0] - origin[0]))
+        theta1 %= 360
+        theta2 %= 360
+        delta = (theta2 - theta1) % 360
+        if delta > 180:
+            theta1, theta2 = theta2, theta1
+            delta = 360 - delta
+        if delta < 1.0:
+            return
+        ax.add_patch(Arc(origin, radius * 2, radius * 2, angle=0, theta1=theta1, theta2=theta1 + delta, color=color, lw=1.2))
+        mid_angle = math.radians(theta1 + delta / 2)
+        label_x = origin[0] + radius * 1.2 * math.cos(mid_angle)
+        label_y = origin[1] + radius * 1.2 * math.sin(mid_angle)
+        ax.text(label_x, label_y, label, fontsize=11, color=color, fontweight='bold', ha='center', va='center')
     
     def _update_all(self):
         inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_triangles()
@@ -147,7 +229,7 @@ class VelocityTriangleWidget(QWidget):
             ax.autoscale_view()
 
         self._equalize_ylim_only(axes)
-        self._apply_shared_legend()
+        self._apply_box_aspect(axes)
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
@@ -158,31 +240,19 @@ class VelocityTriangleWidget(QWidget):
     def _apply_layout(self) -> None:
         apply_layout_to_figure(self.main_fig)
 
+    def _apply_box_aspect(self, axes) -> None:
+        for ax in axes:
+            if hasattr(ax, "set_box_aspect"):
+                ax.set_box_aspect(1.0)
+            else:
+                ax.set_aspect(1.0, adjustable="box")
+
     def _equalize_ylim_only(self, axes) -> None:
         y_lims = [ax.get_ylim() for ax in axes]
         y_min = min(lim[0] for lim in y_lims)
         y_max = max(lim[1] for lim in y_lims)
         for ax in axes:
             ax.set_ylim(y_min, y_max)
-
-    def _apply_shared_legend(self) -> None:
-        legend_elements = [
-            Line2D([0], [0], color=self.COLOR_C, lw=1.5, label='Blue: c (absolute)'),
-            Line2D([0], [0], color=self.COLOR_W, lw=1.5, label='Green: w (relative)'),
-            Line2D([0], [0], color=self.COLOR_U, lw=1.5, label='Orange: u (blade speed)'),
-            Line2D([0], [0], color='#cdd6f4', lw=1.3, ls='--', label='Dashed: blocked flow'),
-            Line2D([0], [0], color='#cdd6f4', lw=3.0, label='Thick: blade angle'),
-            Line2D([0], [0], color='#cdd6f4', lw=1.3, label='Solid: velocity vectors'),
-        ]
-        self.main_fig.legend(
-            handles=legend_elements,
-            loc='lower center',
-            bbox_to_anchor=(0.5, -0.02),
-            ncol=3,
-            frameon=False,
-            fontsize=8,
-            labelcolor='#cdd6f4',
-        )
 
     def _get_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         if self._triangles is not None:
@@ -319,31 +389,37 @@ class VelocityTriangleWidget(QWidget):
         ax.tick_params(colors='#a6adc8', labelsize=8)
         
         # Geometry
-        o = np.array([0, 0])
-        u = np.array([0, tri.u])
+        o = np.array([0.0, 0.0])
+        u = np.array([0.0, tri.u])
         apex = np.array([tri.c_m, tri.wu])
-        
+
         # Blocked geometry
         cm_b = tri.cm_blocked
         apex_b = np.array([cm_b, tri.wu])
 
-        # Blade line - FIXED: properly handle singularities at beta=0° and beta=90°
-        # tan(beta) is near zero when beta is near 0° (horizontal) or 180°
-        # tan(beta) is infinite when beta is near 90° (vertical)
+        # Blade line - properly handle singularities at beta=0° and beta=90°
         blade_x = cm_b * 1.1
-        # Avoid singularities: check if beta_blade is near 0°, 90°, or 180°
         beta_blade_deg = math.degrees(beta_blade)
         if abs(beta_blade_deg) < 2.0 or abs(beta_blade_deg - 180) < 2.0:
-            # Near horizontal blade (beta ≈ 0° or 180°)
-            blade_y = blade_x * 100 if beta_blade_deg > 0 else -blade_x * 100  # Very large y
+            blade_y = blade_x * 100 if beta_blade_deg > 0 else -blade_x * 100
         elif abs(beta_blade_deg - 90) < 2.0:
-            # Near vertical blade (beta ≈ 90°)
-            blade_y = 0.0  # Vertical line
+            blade_y = 0.0
         else:
-            # Normal case: blade_y = blade_x / tan(beta)
             tan_beta = math.tan(beta_blade)
             blade_y = blade_x / tan_beta
         blade_end = np.array([blade_x, blade_y])
+
+        points = np.vstack([o, u, apex, apex_b, blade_end])
+        x_min, y_min = points.min(axis=0)
+        x_max, y_max = points.max(axis=0)
+        x_span = max(x_max - x_min, 1.0)
+        y_span = max(y_max - y_min, 1.0)
+        x_margin = 0.12 * x_span
+        y_margin = 0.12 * y_span
+        x_lim = (x_min - x_margin, x_max + x_margin)
+        y_lim = (y_min - y_margin, y_max + y_margin)
+        ax.set_xlim(*x_lim)
+        ax.set_ylim(*y_lim)
         
         # u baseline
         ax.annotate('', xy=u, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_U, lw=1.5))
@@ -373,58 +449,38 @@ class VelocityTriangleWidget(QWidget):
         ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center',
                bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
         
-        # Component spans (wu and cu) below baseline with values
-        span_x = -1.5
-        label_x = -2.8
+        # Component spans (wu and cu)
+        x_span = x_lim[1] - x_lim[0]
+        y_span = y_lim[1] - y_lim[0]
+        span_x = x_lim[0] + 0.06 * x_span
+        span_x_cu = x_lim[0] + 0.10 * x_span
+        label_x = self._clamp_value(span_x + 0.03 * x_span, x_lim[0] + 0.02 * x_span, x_lim[1] - 0.02 * x_span)
+        label_x_cu = self._clamp_value(span_x_cu + 0.03 * x_span, x_lim[0] + 0.02 * x_span, x_lim[1] - 0.02 * x_span)
 
         # wu span: from 0 to wu
         if abs(tri.wu) > 0.1:
             ax.annotate('', xy=(span_x, tri.wu), xytext=(span_x, 0),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            ax.text(label_x, tri.wu / 2, 'wu', fontsize=9, color=self.COLOR_W, ha='center',
+            label_y = self._clamp_value(tri.wu / 2, y_lim[0] + 0.05 * y_span, y_lim[1] - 0.05 * y_span)
+            ax.text(label_x, label_y, 'wu', fontsize=9, color=self.COLOR_W, ha='center',
                     bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
 
         # cu span: from wu to u
         cu_val = tri.cu  # Use tri.cu directly for accuracy
         if abs(cu_val) > 0.1:
-            ax.annotate('', xy=(span_x - 0.8, tri.u), xytext=(span_x - 0.8, tri.wu),
+            ax.annotate('', xy=(span_x_cu, tri.u), xytext=(span_x_cu, tri.wu),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            ax.text(label_x - 0.8, (tri.wu + tri.u) / 2, 'cu', fontsize=9, color=self.COLOR_C, ha='center',
+            label_y = self._clamp_value((tri.wu + tri.u) / 2, y_lim[0] + 0.05 * y_span, y_lim[1] - 0.05 * y_span)
+            ax.text(label_x_cu, label_y, 'cu', fontsize=9, color=self.COLOR_C, ha='center',
                     bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
-        
-        # Angle arcs with improved sizing and labels
-        arc_r = min(tri.u, tri.c_m) * 0.2
-        if arc_r < 1.8:
-            arc_r = 1.8
 
-        # β arc (flow) - angle from horizontal axis to w vector
-        # beta_flow should always be measured from positive x-axis counter-clockwise
-        beta_flow = math.degrees(math.atan2(tri.wu, tri.c_m)) if abs(tri.c_m) > 0.01 else 90.0
-        # Ensure beta_flow is in [0, 180] range
-        if beta_flow < 0:
-            beta_flow += 180
-        ax.add_patch(Arc(o, arc_r*2, arc_r*2, angle=0, theta1=0, theta2=beta_flow, color=self.COLOR_W, lw=1.2))
-
-        # β arc (blade) - thick transparent
-        ax.add_patch(Arc(o, arc_r*2.5, arc_r*2.5, angle=0, theta1=0, theta2=beta_blade_deg, color=self.COLOR_W, lw=2.8, alpha=0.35))
-
-        # β label - positioned at midpoint of flow angle arc
-        mid_b = math.radians(beta_flow / 2)
-        ax.text(arc_r * 1.5 * math.cos(mid_b), arc_r * 1.5 * math.sin(mid_b),
-               'β', fontsize=11, color=self.COLOR_W, fontweight='bold', ha='center', va='center')
-
-        # α arc - angle from u baseline (negative x from u) to c vector
-        # This measures the absolute flow angle at the impeller tip
-        c_vec = apex - u  # c vector components
-        alpha_deg = math.degrees(math.atan2(c_vec[0], -c_vec[1]))  # Angle from -y axis
-        if alpha_deg < 0:
-            alpha_deg += 180
-        # Guard against edge cases
-        if alpha_deg > 0.1 and alpha_deg < 179.9:
-            ax.add_patch(Arc(u, arc_r*2, arc_r*2, angle=90, theta1=180-alpha_deg, theta2=180, color=self.COLOR_C, lw=1.2))
-            alpha_mid = math.radians(180 - alpha_deg/2)
-            ax.text(u[0] + arc_r * 1.4 * math.sin(alpha_mid), u[1] + arc_r * 1.4 * math.cos(alpha_mid),
-                    'α', fontsize=11, color=self.COLOR_C, fontweight='bold', ha='center', va='center')
+        # Angle arcs between u and c / u and w
+        arc_r = 0.15 * min(x_span, y_span)
+        u_dir = u
+        w_dir = apex
+        c_dir = o + (apex - u)
+        self._draw_angle_arc(ax, o, u_dir, w_dir, arc_r, "β", self.COLOR_W)
+        self._draw_angle_arc(ax, o, u_dir, c_dir, arc_r * 1.1, "α", self.COLOR_C)
         
         # Baseline
         ax.axhline(0, color='#45475a', lw=0.3, alpha=0.5)
