@@ -52,12 +52,13 @@ ROWS = [
     InducerInfoRow("γ", "γ", "Slip coefficient"),
     InducerInfoRow("Δ(c_u·r)", "Δ(cᵤ·r)", "Swirl difference"),
     InducerInfoRow("T", "T", "Torque"),
-    InducerInfoRow("H/Δp_t", "H/Δp_t", "Head/pressure difference (total-total)"),
+    InducerInfoRow("H", "H", "Euler head"),
+    InducerInfoRow("Δp_t", "Δp_t", "Total-to-total pressure difference"),
 ]
 
 
 ANGLE_KEYS = {"αF", "βF", "ΔαF", "ΔβF", "φ=ΔβB"}
-PAIR_KEYS = {"w₂/w₁", "c₂/c₁", "ΔαF", "ΔβF", "φ=ΔβB", "γ", "Δ(c_u·r)", "T", "H/Δp_t"}
+PAIR_KEYS = {"w₂/w₁", "c₂/c₁", "ΔαF", "ΔβF", "φ=ΔβB", "γ", "Δ(c_u·r)", "T", "H", "Δp_t"}
 
 
 class InducerInfoTableModel(QAbstractTableModel):
@@ -108,14 +109,18 @@ class InducerInfoTableModel(QAbstractTableModel):
         if key == "i | δ":
             value = rows.get("i", [None] * 4)[column] if column in (0, 2) else rows.get("δ", [None] * 4)[column]
             return self._format_angle(value)
-        if key == "H/Δp_t":
+        if key in {"H", "Δp_t"}:
             if column in (0, 2):
                 idx = 1 if column == 0 else 3
-                h = rows.get("H_euler", [None] * 4)[idx]
-                dp = rows.get("Δp_t", [None] * 4)[idx]
-                if h is None or dp is None:
+                if key == "H":
+                    value = rows.get("H_euler", [None] * 4)[idx]
+                    if value is None:
+                        return "—"
+                    return f"{value:.2f}"
+                value = rows.get("Δp_t", [None] * 4)[idx]
+                if value is None:
                     return "—"
-                return f"H={h:.2f} m / Δp={dp:.2f} bar"
+                return f"{value:.2f}"
             return "—"
         if key in PAIR_KEYS:
             if column in (0, 2):
@@ -133,7 +138,7 @@ class InducerInfoTableModel(QAbstractTableModel):
             return f"{value:.3f}"
         if key in {"γ"}:
             return f"{value:.3f}"
-        if key in {"Δ(c_u·r)", "T"}:
+        if key in {"Δ(c_u·r)", "T", "H", "Δp_t"}:
             return f"{value:.3f}"
         return f"{value:.2f}"
 
@@ -178,7 +183,8 @@ class InducerInfoLegendDialog(QDialog):
             "γ  Slip coefficient\n"
             "Δ(cᵤ·r) Swirl difference\n"
             "T  Torque\n"
-            "H/Δp_t Head/pressure difference (total-total)\n"
+            "H  Euler head\n"
+            "Δp_t  Total-to-total pressure difference\n"
         )
         layout.addWidget(text)
         close_btn = QPushButton("Close")
@@ -231,6 +237,6 @@ class InducerInfoTableWidget(QWidget):
 
     def _apply_spans(self) -> None:
         for row_index, row in enumerate(ROWS):
-            if row.key in PAIR_KEYS or row.key == "H/Δp_t":
+            if row.key in PAIR_KEYS:
                 self._table.setSpan(row_index, 0, 1, 2)
                 self._table.setSpan(row_index, 2, 1, 2)

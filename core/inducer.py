@@ -224,10 +224,12 @@ class Inducer:
 
     def _resolve_blockage(self, blade: StationBlade, tau: Optional[float]) -> float:
         if blade.blockage is not None:
-            return blade.blockage
-        if tau is None or tau >= 1.0:
+            return max(1.0, blade.blockage)
+        if tau is None:
             return 1.0
-        return 1.0 / (1.0 - tau)
+        if tau >= 1.0:
+            return 1.0
+        return max(1.0, 1.0 / (1.0 - tau))
 
     def _fill_pair_rows(
         self,
