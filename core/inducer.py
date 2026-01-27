@@ -29,6 +29,7 @@ class StationBlade:
     incidence: float = 0.0
     slip_angle_mock: float | None = None
     blockage: float | None = None
+    lambda_la: float | None = None
 
 
 @dataclass(frozen=True)
@@ -214,11 +215,14 @@ class Inducer:
         )
 
     def _compute_tau(self, blade: StationBlade, geom: StationGeom) -> Optional[float]:
-        denom = 2.0 * math.pi * geom.r * math.sin(blade.beta_blade)
+        lambda_la = blade.lambda_la if blade.lambda_la is not None else (math.pi / 2.0)
+        denom = math.pi * (2.0 * geom.r) * math.sin(blade.beta_blade) * math.sin(lambda_la)
         if abs(denom) < 1e-9:
             return None
-        tau = (blade.blade_number * blade.thickness) / denom
-        return max(0.0, tau)
+        ratio = (blade.blade_number * blade.thickness) / denom
+        if ratio >= 1.0:
+            return None
+        return 1.0 / (1.0 - ratio)
 
     def _fill_pair_rows(
         self,
@@ -454,6 +458,7 @@ class Inducer:
                     "incidence": blade.incidence,
                     "slip_angle_mock": blade.slip_angle_mock,
                     "blockage": blade.blockage,
+                    "lambda_la": blade.lambda_la,
                 }
                 for key, blade in self.stations_blade.items()
             },
@@ -510,6 +515,7 @@ class Inducer:
                     incidence=float(val.get("incidence", 0.0)),
                     slip_angle_mock=val.get("slip_angle_mock"),
                     blockage=val.get("blockage"),
+                    lambda_la=val.get("lambda_la"),
                 )
                 for key, val in data.get("stations_blade", {}).items()
             },

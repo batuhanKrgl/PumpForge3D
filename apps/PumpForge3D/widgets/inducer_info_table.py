@@ -42,7 +42,7 @@ ROWS = [
     InducerInfoRow("c", "c", "Absolute velocity"),
     InducerInfoRow("w_u", "wᵤ", "Circumferential component of relative velocity"),
     InducerInfoRow("w", "w", "Relative velocity"),
-    InducerInfoRow("τ", "τ", "Blade solidity τ = Z·t / (2π r sin β)"),
+    InducerInfoRow("τ", "τ", "Blade blockage τ = (1 - e·Z/(π d sin β sin λ))^-1"),
     InducerInfoRow("i | δ", "i | δ", "Incidence i = β₁B − β₁ (LE), deviation δ = β₂B − β₂ (TE)"),
     InducerInfoRow("w₂/w₁", "w₂/w₁", "Deceleration ratio of relative velocity"),
     InducerInfoRow("c₂/c₁", "c₂/c₁", "Absolute velocity ratio"),
@@ -172,7 +172,7 @@ class InducerInfoLegendDialog(QDialog):
             "c  Absolute velocity\n"
             "wᵤ Circumferential component of relative velocity\n"
             "w  Relative velocity\n"
-            "τ  Blade solidity τ = Z·t / (2π r sin β)\n"
+            "τ  Blade blockage τ = (1 - e·Z/(π d sin β sin λ))^-1\n"
             "i  Incidence angle: i = β₁B − β₁\n"
             "δ  Deviation angle: δ = β₂B − β₂\n"
             "w₂/w₁ Deceleration ratio of relative velocity\n"
