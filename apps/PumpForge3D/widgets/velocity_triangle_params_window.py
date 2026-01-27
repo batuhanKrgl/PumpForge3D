@@ -15,13 +15,13 @@ from PySide6.QtWidgets import (
     QSizePolicy, QGroupBox
 )
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QIcon
 
 # Import StyledSpinBox from blade_properties_widgets
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 from blade_properties_widgets import StyledSpinBox
+from numeric_input_dialog import NumericInputDialog
 
 
 class VelocityTriangleParamsWindow(QWidget):
@@ -29,10 +29,10 @@ class VelocityTriangleParamsWindow(QWidget):
     Non-modal parameter input window for velocity triangle calculations.
 
     Signals:
-        parametersChanged: Emitted when any parameter changes
+        parametersChanged: Emitted when parameters are applied
     """
 
-    parametersChanged = Signal(dict)  # {'n': float, 'Q': float, 'alpha1': float}
+    parametersChanged = Signal(dict)  # {'rpm': float, 'flow_rate_m3s': float, 'alpha_in_deg': float}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -113,11 +113,13 @@ class VelocityTriangleParamsWindow(QWidget):
 
         # RPM (n)
         self.rpm_spin = StyledSpinBox()
-        self.rpm_spin.setRange(100.0, 20000.0)
+        self.rpm_spin.setRange(100.0, 200000.0)
         self.rpm_spin.setDecimals(0)
         self.rpm_spin.setSingleStep(100.0)
         self.rpm_spin.setSuffix(" RPM")
         self.rpm_spin.setValue(self._rpm)
+        self.rpm_spin.setReadOnly(True)
+        self.rpm_spin.setButtonsEnabled(False)
         params_layout.addRow(create_label("Rotational speed n:"), self.rpm_spin)
 
         # Flow rate Q (L/s)
@@ -127,6 +129,8 @@ class VelocityTriangleParamsWindow(QWidget):
         self.flow_rate_spin.setSingleStep(0.5)
         self.flow_rate_spin.setSuffix(" L/s")
         self.flow_rate_spin.setValue(self._flow_rate_lps)
+        self.flow_rate_spin.setReadOnly(True)
+        self.flow_rate_spin.setButtonsEnabled(False)
         params_layout.addRow(create_label("Flow rate Q:"), self.flow_rate_spin)
 
         # Inlet flow angle α₁
@@ -136,6 +140,8 @@ class VelocityTriangleParamsWindow(QWidget):
         self.alpha1_spin.setSingleStep(1.0)
         self.alpha1_spin.setSuffix("°")
         self.alpha1_spin.setValue(self._alpha1_deg)
+        self.alpha1_spin.setReadOnly(True)
+        self.alpha1_spin.setButtonsEnabled(False)
         params_layout.addRow(create_label("Inlet angle α₁:"), self.alpha1_spin)
 
         main_layout.addWidget(params_group)
@@ -182,34 +188,70 @@ class VelocityTriangleParamsWindow(QWidget):
 
     def _connect_signals(self):
         """Connect value change signals."""
-        self.rpm_spin.valueChanged.connect(self._on_rpm_changed)
-        self.flow_rate_spin.valueChanged.connect(self._on_flow_rate_changed)
-        self.alpha1_spin.valueChanged.connect(self._on_alpha1_changed)
-
-    def _on_rpm_changed(self, value):
-        """Handle RPM change."""
-        self._rpm = value
-        self._emit_parameters()
-
-    def _on_flow_rate_changed(self, value):
-        """Handle flow rate change."""
-        self._flow_rate_lps = value
-        self._emit_parameters()
-
-    def _on_alpha1_changed(self, value):
-        """Handle inlet angle change."""
-        self._alpha1_deg = value
-        self._emit_parameters()
+        pass
 
     def _on_apply(self):
-        """Emit parameters when Apply is clicked."""
+        """Open numeric input dialog and emit parameters when Apply is clicked."""
+        fields = [
+            {
+                "key": "rpm",
+                "label": "Rotational speed n:",
+                "value": self._rpm,
+                "min": 1.0,
+                "max": 200000.0,
+                "decimals": 0,
+                "step": 100.0,
+                "suffix": " RPM",
+            },
+            {
+                "key": "flow_rate_lps",
+                "label": "Flow rate Q:",
+                "value": self._flow_rate_lps,
+                "min": 0.1,
+                "max": 1000.0,
+                "decimals": 2,
+                "step": 0.5,
+                "suffix": " L/s",
+            },
+            {
+                "key": "alpha1_deg",
+                "label": "Inlet angle α₁:",
+                "value": self._alpha1_deg,
+                "min": 0.0,
+                "max": 180.0,
+                "decimals": 1,
+                "step": 1.0,
+                "suffix": "°",
+            },
+        ]
+        dialog = NumericInputDialog(
+            0.0,
+            0.0,
+            point_name="Velocity Triangle Parameters",
+            fields=fields,
+            dialog_title="Velocity Triangle Parameters",
+            parent=self,
+        )
+        dialog.applied.connect(self._on_dialog_applied)
+        dialog.exec()
+
+    def _on_dialog_applied(self, payload: dict) -> None:
+        self._rpm = payload.get("rpm", self._rpm)
+        self._flow_rate_lps = payload.get("flow_rate_lps", self._flow_rate_lps)
+        self._alpha1_deg = payload.get("alpha1_deg", self._alpha1_deg)
+        self._sync_inputs()
         self._emit_parameters()
+
+    def _sync_inputs(self) -> None:
+        self.rpm_spin.setValue(self._rpm)
+        self.flow_rate_spin.setValue(self._flow_rate_lps)
+        self.alpha1_spin.setValue(self._alpha1_deg)
 
     def _emit_parameters(self):
         params = {
-            "n": self._rpm,
-            "Q": self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
-            "alpha1": self._alpha1_deg,
+            "rpm": self._rpm,
+            "flow_rate_m3s": self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
+            "alpha_in_deg": self._alpha1_deg,
         }
         self.parametersChanged.emit(params)
 
@@ -218,12 +260,12 @@ class VelocityTriangleParamsWindow(QWidget):
         Get current parameter values.
 
         Returns:
-            dict: {'n': RPM, 'Q': m³/s, 'alpha1': degrees}
+            dict: {'rpm': RPM, 'flow_rate_m3s': m³/s, 'alpha_in_deg': degrees}
         """
         return {
-            'n': self._rpm,
-            'Q': self._flow_rate_lps / 1000.0,  # Convert to m³/s
-            'alpha1': self._alpha1_deg
+            "rpm": self._rpm,
+            "flow_rate_m3s": self._flow_rate_lps / 1000.0,  # Convert to m³/s
+            "alpha_in_deg": self._alpha1_deg,
         }
 
     def set_parameters(self, rpm: float, flow_rate_m3s: float, alpha1_deg: float) -> None:
@@ -231,9 +273,7 @@ class VelocityTriangleParamsWindow(QWidget):
         self._rpm = rpm
         self._flow_rate_lps = flow_rate_m3s * 1000.0
         self._alpha1_deg = alpha1_deg
-        self.rpm_spin.setValue(self._rpm)
-        self.flow_rate_spin.setValue(self._flow_rate_lps)
-        self.alpha1_spin.setValue(self._alpha1_deg)
+        self._sync_inputs()
 
     def update_geometry_display(self, r_hub: float, r_tip: float):
         """

@@ -24,6 +24,7 @@ class NumericInputDialog(QDialog):
     """
     
     coordinates_accepted = Signal(float, float)
+    applied = Signal(dict)
     
     def __init__(
         self,
@@ -34,17 +35,22 @@ class NumericInputDialog(QDialog):
         point_index: int = 0,
         angle_locked: bool = False,
         angle_value: float = 0.0,
-        parent=None
+        parent=None,
+        fields: Optional[list[dict]] = None,
+        dialog_title: Optional[str] = None,
     ):
         super().__init__(parent)
-        
+
         self.curve_name = curve_name
         self.point_index = point_index
         self._angle_locked = angle_locked
         self._angle_value = angle_value
         self.angle_spin = None  # Will be created in _setup_ui if needed
-        
-        self.setWindowTitle(f"Edit {point_name}")
+        self._fields = fields
+        self._field_spins: dict[str, QDoubleSpinBox] = {}
+
+        title = dialog_title or f"Edit {point_name}"
+        self.setWindowTitle(title)
         self.setWindowFlags(
             Qt.WindowType.Dialog |
             Qt.WindowType.FramelessWindowHint |
@@ -111,8 +117,74 @@ class NumericInputDialog(QDialog):
         shadow.setColor(QColor(0, 0, 0, 80))
         self.setGraphicsEffect(shadow)
         
-        self._setup_ui(current_z, current_r, point_name)
-    
+        if self._fields:
+            self._setup_fields_ui(point_name)
+        else:
+            self._setup_ui(current_z, current_r, point_name)
+
+    def _setup_fields_ui(self, point_name: str) -> None:
+        """Create a dialog UI for generic numeric fields."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        title = QLabel(f"<b>{point_name}</b>")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 13px; color: #89b4fa;")
+        layout.addWidget(title)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.HLine)
+        sep1.setStyleSheet("background: #45475a;")
+        layout.addWidget(sep1)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        for field in self._fields or []:
+            key = field["key"]
+            label = field.get("label", key)
+            spin = QDoubleSpinBox()
+            spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            spin.setRange(field.get("min", -1e9), field.get("max", 1e9))
+            spin.setDecimals(field.get("decimals", 2))
+            if "suffix" in field:
+                spin.setSuffix(field["suffix"])
+            if "step" in field:
+                spin.setSingleStep(field["step"])
+            spin.setValue(field.get("value", 0.0))
+            spin.setFixedWidth(field.get("width", 120))
+            self._field_spins[key] = spin
+            form.addRow(label, spin)
+
+        layout.addLayout(form)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("background: #45475a;")
+        layout.addWidget(sep2)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.setObjectName("apply_btn")
+        apply_btn.setDefault(True)
+        apply_btn.clicked.connect(self._apply)
+        btn_layout.addWidget(apply_btn)
+
+        layout.addLayout(btn_layout)
+
+        if self._field_spins:
+            first_spin = next(iter(self._field_spins.values()))
+            first_spin.setFocus()
+            first_spin.selectAll()
+
     def _setup_ui(self, current_z: float, current_r: float, point_name: str):
         """Create the dialog UI."""
         layout = QVBoxLayout(self)
@@ -231,9 +303,15 @@ class NumericInputDialog(QDialog):
     
     def _apply(self):
         """Apply the new coordinates."""
+        if self._fields:
+            payload = self.get_field_values()
+            self.applied.emit(payload)
+            self.accept()
+            return
         z = self.z_spin.value()
         r = self.r_spin.value()
         self.coordinates_accepted.emit(z, r)
+        self.applied.emit({"z": z, "r": r})
         self.accept()
     
     def _on_angle_lock_toggled(self, checked: bool):
@@ -248,6 +326,10 @@ class NumericInputDialog(QDialog):
     def get_values(self) -> Tuple[float, float]:
         """Get the entered coordinate values."""
         return (self.z_spin.value(), self.r_spin.value())
+
+    def get_field_values(self) -> dict:
+        """Get the entered field values."""
+        return {key: spin.value() for key, spin in self._field_spins.items()}
     
     def get_angle_locked(self) -> bool:
         """Get the angle lock state."""
@@ -288,4 +370,3 @@ class NumericInputDialog(QDialog):
             z, r = dialog.get_values()
             return (True, z, r, dialog.get_angle_locked(), dialog.get_angle_value())
         return (False, current_z, current_r, angle_locked, angle_value)
-
