@@ -121,8 +121,8 @@ class BladePropertiesTab(QWidget):
 
         self._setup_ui()
         self._connect_signals()
-        self._seed_triangles_from_state()
         self._update_all()
+        self._state.inducer_changed.connect(self._on_inducer_changed)
 
     def _setup_ui(self):
         """Setup the 3-column tab layout."""
@@ -294,6 +294,7 @@ class BladePropertiesTab(QWidget):
 
         # Velocity triangle widget (existing, with built-in controls)
         self.triangle_widget = VelocityTriangleWidget()
+        self.triangle_widget.set_state(self._state)
         self.triangle_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel_layout.addWidget(self.triangle_widget)
 
@@ -377,18 +378,18 @@ class BladePropertiesTab(QWidget):
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
 
-    def _seed_triangles_from_state(self):
-        """Seed the triangle widget with default core model data."""
-        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
-        self.triangle_widget.set_triangles(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
-
     def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
-        inducer = self._state.inducer
+        inducer = self._state.get_inducer()
         inlet_hub = inducer.make_inlet_triangle(inducer.r_in_hub)
         inlet_tip = inducer.make_inlet_triangle(inducer.r_in_tip)
         outlet_hub = inducer.make_outlet_triangle(inducer.r_out_hub)
         outlet_tip = inducer.make_outlet_triangle(inducer.r_out_tip)
         return inlet_hub, inlet_tip, outlet_hub, outlet_tip
+
+    def _on_inducer_changed(self, inducer):
+        """Handle inducer changes from AppState."""
+        self._update_triangle_details()
+        self._update_analysis_plots()
 
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
@@ -540,6 +541,14 @@ class BladePropertiesTab(QWidget):
     def get_blade_properties(self) -> BladeProperties:
         """Get current blade properties."""
         return self._blade_properties
+
+    def get_blade_inputs_widget(self) -> BladeInputsWidget:
+        """Get the blade inputs widget."""
+        return self.blade_inputs_widget
+
+    def get_thickness_widget(self) -> BladeThicknessMatrixWidget:
+        """Get the blade thickness widget."""
+        return self.thickness_widget
 
     def set_blade_properties(self, properties: BladeProperties):
         """Set blade properties."""

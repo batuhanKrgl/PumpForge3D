@@ -19,6 +19,7 @@ from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
 from .app.state.app_state import AppState
+from .app.controllers.blade_properties_binder import BladePropertiesBinder
 from .tabs.design_tab import DesignTab
 from .tabs.blade_properties_tab import BladePropertiesTab
 from .tabs.export_tab import ExportTab
@@ -447,6 +448,10 @@ class MainWindow(QMainWindow):
         
         # Tab change
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+        # Blade properties -> inducer binding
+        self.blade_binder = BladePropertiesBinder(self.blade_properties_tab, self.state, self)
+        self.blade_binder.connect_signals()
     
     def _on_geometry_changed(self):
         """Handle geometry change from design tab."""

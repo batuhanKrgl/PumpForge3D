@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import replace
 import math
+from typing import Dict
+
+from PySide6.QtCore import QObject, Signal
 
 from core.inducer import Inducer
+from core.velocity_triangles import InletTriangle, OutletTriangle
 
 
 def make_default_inducer() -> Inducer:
@@ -40,12 +44,44 @@ def make_default_inducer() -> Inducer:
     )
 
 
-@dataclass
-class AppState:
+class AppState(QObject):
     """Lightweight GUI state container."""
 
-    inducer: Inducer
+    inducer_changed = Signal(object)
+    triangles_changed = Signal(dict)
+    validation_failed = Signal(str)
+
+    def __init__(self, inducer: Inducer, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._inducer = inducer
 
     @classmethod
     def create_default(cls) -> "AppState":
         return cls(inducer=make_default_inducer())
+
+    def get_inducer(self) -> Inducer:
+        return self._inducer
+
+    def set_inducer(self, inducer: Inducer, *, source: str = "") -> None:
+        self._inducer = inducer
+        self.inducer_changed.emit(inducer)
+        triangles = self._build_triangles_payload(inducer)
+        self.triangles_changed.emit(triangles)
+
+    def update_inducer_fields(self, **kwargs) -> None:
+        try:
+            updated = replace(self._inducer, **kwargs)
+            updated.validate()
+        except ValueError as exc:
+            self.validation_failed.emit(str(exc))
+            return
+        self.set_inducer(updated, source="update")
+
+    @staticmethod
+    def _build_triangles_payload(inducer: Inducer) -> Dict[str, object]:
+        return {
+            "inlet_hub": inducer.make_inlet_triangle(inducer.r_in_hub),
+            "inlet_tip": inducer.make_inlet_triangle(inducer.r_in_tip),
+            "outlet_hub": inducer.make_outlet_triangle(inducer.r_out_hub),
+            "outlet_tip": inducer.make_outlet_triangle(inducer.r_out_tip),
+        }

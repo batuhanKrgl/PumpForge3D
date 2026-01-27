@@ -22,6 +22,7 @@ from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 
 from core.velocity_triangles import InletTriangle, OutletTriangle
+from ..app.state.app_state import AppState
 
 
 class VelocityTriangleWidget(QWidget):
@@ -62,6 +63,7 @@ class VelocityTriangleWidget(QWidget):
         
         self._k_blockage = 1.10
         self._triangles = None
+        self._state = None
         
         self._setup_ui()
         self._connect_signals()
@@ -242,6 +244,32 @@ class VelocityTriangleWidget(QWidget):
         if self._triangles is not None:
             return self._triangles
         return self._build_triangles_from_inputs()
+
+    def set_state(self, state: AppState) -> None:
+        """Connect the widget to AppState for triangle updates."""
+        if self._state is not None:
+            try:
+                self._state.triangles_changed.disconnect(self._on_triangles_changed)
+            except TypeError:
+                pass
+        self._state = state
+        self._state.triangles_changed.connect(self._on_triangles_changed)
+        inducer = self._state.get_inducer()
+        self.set_triangles(
+            inducer.make_inlet_triangle(inducer.r_in_hub),
+            inducer.make_inlet_triangle(inducer.r_in_tip),
+            inducer.make_outlet_triangle(inducer.r_out_hub),
+            inducer.make_outlet_triangle(inducer.r_out_tip),
+        )
+
+    def _on_triangles_changed(self, payload: dict) -> None:
+        inlet_hub = payload.get("inlet_hub")
+        inlet_tip = payload.get("inlet_tip")
+        outlet_hub = payload.get("outlet_hub")
+        outlet_tip = payload.get("outlet_tip")
+        if not all([inlet_hub, inlet_tip, outlet_hub, outlet_tip]):
+            return
+        self.set_triangles(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
 
     def _build_triangles_from_inputs(
         self,
