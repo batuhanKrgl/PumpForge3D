@@ -33,9 +33,11 @@ def test_payload_maps_station_thicknesses():
 
     inputs = {
         "blade_number": 6,
-        "incidence_deg": 4.0,
+        "incidence_deg_hub": 4.0,
+        "incidence_deg_tip": 5.0,
         "slip_mode": "Mock",
-        "mock_slip_deg": 5.0,
+        "mock_slip_deg_hub": 5.0,
+        "mock_slip_deg_tip": 6.0,
         "thickness": BladeThicknessMatrix(hub_inlet=1.0, tip_inlet=2.0, hub_outlet=3.0, tip_outlet=4.0),
     }
 
@@ -46,3 +48,7 @@ def test_payload_maps_station_thicknesses():
     assert updated.stations_blade["shroud_le"].thickness == 0.002
     assert updated.stations_blade["hub_te"].thickness == 0.003
     assert updated.stations_blade["shroud_te"].thickness == 0.004
+    assert updated.stations_blade["hub_le"].incidence == math.radians(4.0)
+    assert updated.stations_blade["shroud_le"].incidence == math.radians(5.0)
+    assert updated.stations_blade["hub_te"].slip_angle_mock == math.radians(5.0)
+    assert updated.stations_blade["shroud_te"].slip_angle_mock == math.radians(6.0)

@@ -388,9 +388,9 @@ class BladePropertiesTab(QWidget):
         self._update_slip_calculation()
         self._update_analysis_plots()
 
-    def _on_incidence_changed(self, incidence):
+    def _on_incidence_changed(self, hub_incidence, tip_incidence):
         """Handle incidence change."""
-        self._blade_properties.incidence_deg = incidence
+        self._blade_properties.incidence_deg = (hub_incidence + tip_incidence) / 2.0
         self._update_analysis_plots()
 
     def _on_slip_mode_changed(self, mode):
@@ -398,9 +398,9 @@ class BladePropertiesTab(QWidget):
         self._blade_properties.slip_mode = mode
         self._update_slip_calculation()
 
-    def _on_mock_slip_changed(self, slip):
+    def _on_mock_slip_changed(self, hub_slip, tip_slip):
         """Handle mock slip value change."""
-        self._blade_properties.mock_slip_deg = slip
+        self._blade_properties.mock_slip_deg = (hub_slip + tip_slip) / 2.0
         self._update_slip_calculation()
 
     def _on_triangle_inputs_changed(self):

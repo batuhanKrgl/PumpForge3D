@@ -319,40 +319,42 @@ class Inducer:
     def update_from_blade_properties(self, payload: Dict[str, Any]) -> "Inducer":
         """Return a new Inducer with blade property updates applied."""
         blade_number = int(payload["blade_number"])
-        incidence = float(payload["incidence"])
-        slip_angle_mock = float(payload["slip_angle_mock"])
+        incidence_hub = float(payload["incidence_hub"])
+        incidence_tip = float(payload["incidence_tip"])
+        slip_angle_mock_hub = float(payload["slip_angle_mock_hub"])
+        slip_angle_mock_tip = float(payload["slip_angle_mock_tip"])
         thickness = payload["thickness"]
 
         stations_blade = dict(self.stations_blade)
         stations_blade["hub_le"] = replace(
             stations_blade["hub_le"],
             blade_number=blade_number,
-            incidence=incidence,
+            incidence=incidence_hub,
             thickness=float(thickness["hub_le"]),
         )
         stations_blade["shroud_le"] = replace(
             stations_blade["shroud_le"],
             blade_number=blade_number,
-            incidence=incidence,
+            incidence=incidence_tip,
             thickness=float(thickness["shroud_le"]),
         )
         stations_blade["hub_te"] = replace(
             stations_blade["hub_te"],
             blade_number=blade_number,
             thickness=float(thickness["hub_te"]),
-            slip_angle_mock=slip_angle_mock,
+            slip_angle_mock=slip_angle_mock_hub,
         )
         stations_blade["shroud_te"] = replace(
             stations_blade["shroud_te"],
             blade_number=blade_number,
             thickness=float(thickness["shroud_te"]),
-            slip_angle_mock=slip_angle_mock,
+            slip_angle_mock=slip_angle_mock_tip,
         )
         return replace(
             self,
             blade_number=blade_number,
-            incidence_in=incidence,
-            slip_out=slip_angle_mock,
+            incidence_in=(incidence_hub + incidence_tip) / 2.0,
+            slip_out=(slip_angle_mock_hub + slip_angle_mock_tip) / 2.0,
             thickness_in=float((thickness["hub_le"] + thickness["shroud_le"]) / 2.0),
             thickness_out=float((thickness["hub_te"] + thickness["shroud_te"]) / 2.0),
             stations_blade=stations_blade,

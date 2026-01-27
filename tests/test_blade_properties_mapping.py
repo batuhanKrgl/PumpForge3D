@@ -33,17 +33,21 @@ def test_mapping_updates_inducer_fields():
 
     inputs = {
         "blade_number": 7,
-        "incidence_deg": 3.0,
+        "incidence_deg_hub": 3.0,
+        "incidence_deg_tip": 4.0,
         "slip_mode": "Mock",
-        "mock_slip_deg": 6.0,
+        "mock_slip_deg_hub": 6.0,
+        "mock_slip_deg_tip": 7.0,
         "thickness": BladeThicknessMatrix(hub_inlet=2.0, tip_inlet=3.0, hub_outlet=1.5, tip_outlet=2.5),
     }
 
     updates = map_blade_inputs_to_inducer_payload(inputs, inducer)
 
     assert updates["blade_number"] == 7
-    assert updates["incidence"] == math.radians(3.0)
-    assert updates["slip_angle_mock"] == math.radians(6.0)
+    assert updates["incidence_hub"] == math.radians(3.0)
+    assert updates["incidence_tip"] == math.radians(4.0)
+    assert updates["slip_angle_mock_hub"] == math.radians(6.0)
+    assert updates["slip_angle_mock_tip"] == math.radians(7.0)
     assert updates["thickness"]["hub_le"] == 2.0 / 1000.0
     assert updates["thickness"]["hub_te"] == 1.5 / 1000.0
     assert updates["thickness"]["shroud_le"] == 3.0 / 1000.0

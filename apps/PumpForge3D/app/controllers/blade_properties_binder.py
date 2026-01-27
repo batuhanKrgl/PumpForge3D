@@ -25,7 +25,8 @@ def map_blade_inputs_to_inducer_payload(
     Thickness values are stored in mm in the BladeThicknessMatrix and converted to meters.
     """
     blade_number = int(inputs["blade_number"])
-    incidence_rad = math.radians(inputs["incidence_deg"])
+    incidence_hub_rad = math.radians(inputs["incidence_deg_hub"])
+    incidence_tip_rad = math.radians(inputs["incidence_deg_tip"])
 
     thickness: BladeThicknessMatrix = inputs["thickness"]
     thickness_map = {
@@ -36,24 +37,28 @@ def map_blade_inputs_to_inducer_payload(
     }
 
     slip_mode = inputs["slip_mode"]
-    mock_slip_deg = inputs["mock_slip_deg"]
+    mock_slip_hub_deg = inputs["mock_slip_deg_hub"]
+    mock_slip_tip_deg = inputs["mock_slip_deg_tip"]
     beta_blade_out_deg = math.degrees(inducer.beta_blade_out)
     slip_result = calculate_slip(
         beta_blade_deg=beta_blade_out_deg,
         blade_count=blade_number,
         slip_mode=slip_mode,
-        mock_slip_deg=mock_slip_deg,
+        mock_slip_deg=(mock_slip_hub_deg + mock_slip_tip_deg) / 2.0,
         r_q=inputs.get("r_q"),
         d_inlet_hub_mm=inputs.get("d_inlet_hub_mm"),
         d_inlet_shroud_mm=inputs.get("d_inlet_shroud_mm"),
         d_outlet_mm=inputs.get("d_outlet_mm"),
     )
-    slip_rad = math.radians(slip_result.slip_angle_deg)
+    slip_hub_rad = math.radians(slip_result.slip_angle_deg if slip_mode != "Mock" else mock_slip_hub_deg)
+    slip_tip_rad = math.radians(slip_result.slip_angle_deg if slip_mode != "Mock" else mock_slip_tip_deg)
 
     return {
         "blade_number": blade_number,
-        "incidence": incidence_rad,
-        "slip_angle_mock": slip_rad,
+        "incidence_hub": incidence_hub_rad,
+        "incidence_tip": incidence_tip_rad,
+        "slip_angle_mock_hub": slip_hub_rad,
+        "slip_angle_mock_tip": slip_tip_rad,
         "thickness": thickness_map,
     }
 
@@ -98,8 +103,10 @@ class BladePropertiesBinder(QObject):
 
         return {
             "blade_number": blade_inputs.get_blade_count(),
-            "incidence_deg": blade_inputs.get_incidence(),
+            "incidence_deg_hub": blade_inputs.get_incidence_hub(),
+            "incidence_deg_tip": blade_inputs.get_incidence_tip(),
             "slip_mode": blade_inputs.get_slip_mode(),
-            "mock_slip_deg": blade_inputs.get_mock_slip(),
+            "mock_slip_deg_hub": blade_inputs.get_mock_slip_hub(),
+            "mock_slip_deg_tip": blade_inputs.get_mock_slip_tip(),
             "thickness": thickness_widget.get_thickness(),
         }
