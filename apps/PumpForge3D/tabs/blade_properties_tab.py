@@ -23,7 +23,6 @@ from PySide6.QtCore import Qt, Signal
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
-    TriangleDetailsWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
@@ -176,21 +175,6 @@ class BladePropertiesTab(QWidget):
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(4, 4, 4, 4)
         panel_layout.setSpacing(4)
-
-        # Panel title
-        title = QLabel("⚙ Blade Inputs")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-                background-color: #1e1e2e;
-                border-radius: 3px;
-            }
-        """)
-        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        panel_layout.addWidget(title)
 
         # Scroll area for collapsible groups
         scroll = QScrollArea()
@@ -362,21 +346,9 @@ class BladePropertiesTab(QWidget):
 
         splitter.addWidget(plots_widget)
 
-        # === Triangle Details (bottom) ===
-        details_widget = QWidget()
-        details_layout = QVBoxLayout(details_widget)
-        details_layout.setContentsMargins(4, 4, 4, 4)
-        details_layout.setSpacing(4)
-
-        self.triangle_details = TriangleDetailsWidget()
-        details_layout.addWidget(self.triangle_details)
-
-        splitter.addWidget(details_widget)
-
-        # Set splitter proportions: info 45%, plots 30%, details 25%
-        splitter.setStretchFactor(0, 45)
-        splitter.setStretchFactor(1, 30)
-        splitter.setStretchFactor(2, 25)
+        # Set splitter proportions: info 55%, plots 45%
+        splitter.setStretchFactor(0, 55)
+        splitter.setStretchFactor(1, 45)
 
         panel_layout.addWidget(splitter)
 
@@ -400,7 +372,6 @@ class BladePropertiesTab(QWidget):
 
     def _on_inducer_changed(self, inducer):
         """Handle inducer changes from AppState."""
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _on_inducer_info_changed(self, snapshot: dict):
@@ -420,7 +391,6 @@ class BladePropertiesTab(QWidget):
     def _on_incidence_changed(self, incidence):
         """Handle incidence change."""
         self._blade_properties.incidence_deg = incidence
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _on_slip_mode_changed(self, mode):
@@ -435,7 +405,6 @@ class BladePropertiesTab(QWidget):
 
     def _on_triangle_inputs_changed(self):
         """Handle velocity triangle input changes."""
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _on_params_changed(self, params: dict):
@@ -457,7 +426,6 @@ class BladePropertiesTab(QWidget):
     def _update_all(self):
         """Update all displays."""
         self._update_slip_calculation()
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _update_slip_calculation(self):
@@ -483,54 +451,6 @@ class BladePropertiesTab(QWidget):
         # Slip calculation results are used in triangle details and analysis plots
         # No separate display widget needed - inputs are in Blade Parameters section
 
-    def _update_triangle_details(self):
-        """Update detailed triangle information display."""
-        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
-
-        def _deg(value: float) -> float:
-            return value * 180.0 / math.pi
-
-        def _format_inlet(tri: InletTriangle) -> dict:
-            data = tri.to_dict()
-            return {
-                "u": data["u"],
-                "cu": data["cu"],
-                "cm": data["c_m"],
-                "c": data["c"],
-                "w": data["w"],
-                "alpha": _deg(data["alpha"]),
-                "beta": _deg(data["beta"]),
-                "cm_blocked": data["cm_blocked"],
-                "beta_blocked": _deg(data["beta_blocked"]),
-                "beta_blade": _deg(data["beta_blade"]),
-                "incidence": _deg(data["incidence"]),
-            }
-
-        def _format_outlet(tri: OutletTriangle) -> dict:
-            data = tri.to_dict()
-            return {
-                "u": data["u"],
-                "cu": data["cu"],
-                "cm": data["c_m"],
-                "c": data["c"],
-                "w": data["w"],
-                "alpha": _deg(data["alpha"]),
-                "beta": _deg(data["beta"]),
-                "cm_blocked": data["cm_blocked"],
-                "beta_blocked": _deg(data["beta_blocked"]),
-                "beta_blade": _deg(data["beta_blade"]),
-                "slip": _deg(data["slip"]),
-                "cu_slipped": data["cu_slipped"],
-            }
-
-        triangle_data = {
-            "inlet_hub": _format_inlet(inlet_hub),
-            "inlet_tip": _format_inlet(inlet_tip),
-            "outlet_hub": _format_outlet(outlet_hub),
-            "outlet_tip": _format_outlet(outlet_tip),
-        }
-
-        self.triangle_details.update_details(triangle_data)
 
     def _update_analysis_plots(self):
         """Update analysis plots."""

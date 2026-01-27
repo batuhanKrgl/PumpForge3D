@@ -57,6 +57,7 @@ ROWS = [
 
 
 ANGLE_KEYS = {"αF", "βF", "ΔαF", "ΔβF", "φ=ΔβB"}
+PAIR_KEYS = {"w₂/w₁", "c₂/c₁", "ΔαF", "ΔβF", "φ=ΔβB", "γ", "Δ(c_u·r)", "T", "H/Δp_t"}
 
 
 class InducerInfoTableModel(QAbstractTableModel):
@@ -108,14 +109,22 @@ class InducerInfoTableModel(QAbstractTableModel):
             value = rows.get("i", [None] * 4)[column] if column in (0, 2) else rows.get("δ", [None] * 4)[column]
             return self._format_angle(value)
         if key == "H/Δp_t":
-            if column in (1, 3):
-                h = rows.get("H_euler", [None] * 4)[column]
-                dp = rows.get("Δp_t", [None] * 4)[column]
+            if column in (0, 2):
+                idx = 1 if column == 0 else 3
+                h = rows.get("H_euler", [None] * 4)[idx]
+                dp = rows.get("Δp_t", [None] * 4)[idx]
                 if h is None or dp is None:
                     return "—"
                 return f"H={h:.2f} m / Δp={dp:.2f} bar"
             return "—"
-        value = rows.get(key, [None] * 4)[column]
+        if key in PAIR_KEYS:
+            if column in (0, 2):
+                idx = 1 if column == 0 else 3
+                value = rows.get(key, [None] * 4)[idx]
+            else:
+                return "—"
+        else:
+            value = rows.get(key, [None] * 4)[column]
         if value is None:
             return "—"
         if key in ANGLE_KEYS:
@@ -210,10 +219,18 @@ class InducerInfoTableWidget(QWidget):
         self._table.verticalHeader().setFont(glyph_font)
 
         layout.addWidget(self._table)
+        self._apply_spans()
 
     def set_snapshot(self, snapshot: dict[str, Any]) -> None:
         self._model.set_snapshot(snapshot)
+        self._apply_spans()
 
     def _show_legend(self) -> None:
         dialog = InducerInfoLegendDialog(self)
         dialog.exec()
+
+    def _apply_spans(self) -> None:
+        for row_index, row in enumerate(ROWS):
+            if row.key in PAIR_KEYS or row.key == "H/Δp_t":
+                self._table.setSpan(row_index, 0, 1, 2)
+                self._table.setSpan(row_index, 2, 1, 2)
