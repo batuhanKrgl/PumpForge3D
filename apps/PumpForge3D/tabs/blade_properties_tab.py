@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
+from ..styles import apply_section_header_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -52,21 +53,7 @@ class CollapsibleSection(QWidget):
 
         # Header button
         self.header = QPushButton(f"▼ {self.title}")
-        self.header.setStyleSheet("""
-            QPushButton {
-                text-align: left;
-                padding: 8px;
-                background: #313244;
-                border: none;
-                border-radius: 4px;
-                color: #cdd6f4;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background: #45475a;
-            }
-        """)
+        apply_section_header_style(self.header)
         self.header.clicked.connect(self._toggle)
         layout.addWidget(self.header)
 
@@ -95,7 +82,7 @@ class BladePropertiesTab(QWidget):
 
     Layout: 3 columns
     - Left (23%): Inputs (collapsible groups, compact controls)
-    - Center (52%): Velocity triangles (2×2 main visual)
+    - Center (52%): Velocity triangles (1×4 main visual)
     - Right (25%): Analysis & Details (plots + numeric data)
     """
 
@@ -268,7 +255,7 @@ class BladePropertiesTab(QWidget):
         header_layout.addWidget(params_btn)
 
         # Mini info label (optional, shows current settings)
-        self.triangle_info_label = QLabel("2×2 Subplots | Hub & Tip")
+        self.triangle_info_label = QLabel("1×4 Subplots | Hub/Shroud Leading/Trailing")
         self.triangle_info_label.setStyleSheet("""
             QLabel {
                 color: #a6adc8;
