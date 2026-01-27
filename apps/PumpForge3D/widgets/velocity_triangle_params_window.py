@@ -226,6 +226,15 @@ class VelocityTriangleParamsWindow(QWidget):
             'alpha1': self._alpha1_deg
         }
 
+    def set_parameters(self, rpm: float, flow_rate_m3s: float, alpha1_deg: float) -> None:
+        """Update window inputs without emitting change signals."""
+        self._rpm = rpm
+        self._flow_rate_lps = flow_rate_m3s * 1000.0
+        self._alpha1_deg = alpha1_deg
+        self.rpm_spin.setValue(self._rpm)
+        self.flow_rate_spin.setValue(self._flow_rate_lps)
+        self.alpha1_spin.setValue(self._alpha1_deg)
+
     def update_geometry_display(self, r_hub: float, r_tip: float):
         """
         Update the geometry display (for future integration).

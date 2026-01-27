@@ -122,6 +122,7 @@ class BladePropertiesTab(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._update_all()
+        self._sync_params_window(self._state.get_inducer())
         self._state.inducer_changed.connect(self._on_inducer_changed)
         self._state.inducer_info_changed.connect(self._on_inducer_info_changed)
         self._on_inducer_info_changed(self._state.get_inducer().build_info_snapshot())
@@ -372,10 +373,17 @@ class BladePropertiesTab(QWidget):
 
     def _on_inducer_changed(self, inducer):
         """Handle inducer changes from AppState."""
+        self._sync_params_window(inducer)
         self._update_analysis_plots()
 
     def _on_inducer_info_changed(self, snapshot: dict):
         self.inducer_info_table.set_snapshot(snapshot)
+
+    def _sync_params_window(self, inducer) -> None:
+        rpm = inducer.omega * 60.0 / (2.0 * math.pi)
+        alpha_deg = math.degrees(inducer.alpha_in)
+        self.params_window.set_parameters(rpm, inducer.flow_rate, alpha_deg)
+        self.params_window.update_geometry_display(inducer.r_in_hub, inducer.r_in_tip)
 
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
