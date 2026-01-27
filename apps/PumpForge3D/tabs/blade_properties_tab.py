@@ -11,6 +11,8 @@ Reorganized layout (UI/UX fix):
 Based on CFturbo manual section 7.3.1.4 (Velocity Triangles) and 7.3.1.4.2.1 (Slip by Gülich/Wiesner).
 """
 
+import math
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
     QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy,
@@ -21,17 +23,17 @@ from PySide6.QtCore import Qt, Signal
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
-    TriangleDetailsWidget
 )
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
+from ..widgets.inducer_info_table import InducerInfoTableWidget
 
 from pumpforge3d_core.analysis.blade_properties import (
-    BladeProperties, calculate_slip, calculate_cu_slipped
+    BladeProperties, calculate_slip
 )
-from pumpforge3d_core.analysis.velocity_triangle import (
-    compute_triangle, compute_derived_triangle
-)
+from ..app.state.app_state import AppState
+
+from core.velocity_triangles import InletTriangle, OutletTriangle
 
 
 class CollapsibleSection(QWidget):
@@ -100,8 +102,9 @@ class BladePropertiesTab(QWidget):
     # Signals
     propertiesChanged = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, app_state: AppState | None = None):
         super().__init__(parent)
+        self._state = app_state or AppState.create_default()
 
         # Initialize blade properties
         self._blade_properties = BladeProperties(
@@ -119,6 +122,10 @@ class BladePropertiesTab(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._update_all()
+        self._sync_params_window(self._state.get_inducer())
+        self._state.inducer_changed.connect(self._on_inducer_changed)
+        self._state.inducer_info_changed.connect(self._on_inducer_info_changed)
+        self._on_inducer_info_changed(self._state.get_inducer().build_info_snapshot())
 
     def _setup_ui(self):
         """Setup the 3-column tab layout."""
@@ -169,21 +176,6 @@ class BladePropertiesTab(QWidget):
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(4, 4, 4, 4)
         panel_layout.setSpacing(4)
-
-        # Panel title
-        title = QLabel("⚙ Blade Inputs")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-                background-color: #1e1e2e;
-                border-radius: 3px;
-            }
-        """)
-        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        panel_layout.addWidget(title)
 
         # Scroll area for collapsible groups
         scroll = QScrollArea()
@@ -290,6 +282,7 @@ class BladePropertiesTab(QWidget):
 
         # Velocity triangle widget (existing, with built-in controls)
         self.triangle_widget = VelocityTriangleWidget()
+        self.triangle_widget.set_state(self._state)
         self.triangle_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel_layout.addWidget(self.triangle_widget)
 
@@ -333,6 +326,16 @@ class BladePropertiesTab(QWidget):
         splitter.setHandleWidth(3)
         splitter.setChildrenCollapsible(False)
 
+        # === Inducer Info Table (top) ===
+        info_widget = QWidget()
+        info_layout = QVBoxLayout(info_widget)
+        info_layout.setContentsMargins(4, 4, 4, 4)
+        info_layout.setSpacing(4)
+
+        self.inducer_info_table = InducerInfoTableWidget()
+        info_layout.addWidget(self.inducer_info_table)
+        splitter.addWidget(info_widget)
+
         # === Analysis Plots (top) ===
         plots_widget = QWidget()
         plots_layout = QVBoxLayout(plots_widget)
@@ -344,20 +347,9 @@ class BladePropertiesTab(QWidget):
 
         splitter.addWidget(plots_widget)
 
-        # === Triangle Details (bottom) ===
-        details_widget = QWidget()
-        details_layout = QVBoxLayout(details_widget)
-        details_layout.setContentsMargins(4, 4, 4, 4)
-        details_layout.setSpacing(4)
-
-        self.triangle_details = TriangleDetailsWidget()
-        details_layout.addWidget(self.triangle_details)
-
-        splitter.addWidget(details_widget)
-
-        # Set splitter proportions: 60% plots, 40% details
-        splitter.setStretchFactor(0, 60)
-        splitter.setStretchFactor(1, 40)
+        # Set splitter proportions: info 55%, plots 45%
+        splitter.setStretchFactor(0, 55)
+        splitter.setStretchFactor(1, 45)
 
         panel_layout.addWidget(splitter)
 
@@ -373,6 +365,26 @@ class BladePropertiesTab(QWidget):
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
 
+    def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
+        inducer = self._state.get_inducer()
+        inlet_hub, outlet_hub = inducer.build_triangles_pair("hub")
+        inlet_tip, outlet_tip = inducer.build_triangles_pair("shroud")
+        return inlet_hub, inlet_tip, outlet_hub, outlet_tip
+
+    def _on_inducer_changed(self, inducer):
+        """Handle inducer changes from AppState."""
+        self._sync_params_window(inducer)
+        self._update_analysis_plots()
+
+    def _on_inducer_info_changed(self, snapshot: dict):
+        self.inducer_info_table.set_snapshot(snapshot)
+
+    def _sync_params_window(self, inducer) -> None:
+        rpm = inducer.omega * 60.0 / (2.0 * math.pi)
+        alpha_deg = math.degrees(inducer.alpha_in)
+        self.params_window.set_parameters(rpm, inducer.flow_rate, alpha_deg)
+        self.params_window.update_geometry_display(inducer.r_in_hub, inducer.r_in_tip)
+
     def _on_thickness_changed(self, thickness):
         """Handle thickness matrix change."""
         self._blade_properties.thickness = thickness
@@ -384,10 +396,9 @@ class BladePropertiesTab(QWidget):
         self._update_slip_calculation()
         self._update_analysis_plots()
 
-    def _on_incidence_changed(self, incidence):
+    def _on_incidence_changed(self, hub_incidence, tip_incidence):
         """Handle incidence change."""
-        self._blade_properties.incidence_deg = incidence
-        self._update_triangle_details()
+        self._blade_properties.incidence_deg = (hub_incidence + tip_incidence) / 2.0
         self._update_analysis_plots()
 
     def _on_slip_mode_changed(self, mode):
@@ -395,22 +406,45 @@ class BladePropertiesTab(QWidget):
         self._blade_properties.slip_mode = mode
         self._update_slip_calculation()
 
-    def _on_mock_slip_changed(self, slip):
+    def _on_mock_slip_changed(self, hub_slip, tip_slip):
         """Handle mock slip value change."""
-        self._blade_properties.mock_slip_deg = slip
+        self._blade_properties.mock_slip_deg = (hub_slip + tip_slip) / 2.0
         self._update_slip_calculation()
 
     def _on_triangle_inputs_changed(self):
         """Handle velocity triangle input changes."""
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _on_params_changed(self, params: dict):
         """Handle parameter window changes."""
         # params = {'n': RPM, 'Q': m³/s, 'alpha1': degrees}
-        # Update triangle calculations with new parameters
-        # For now, just trigger a refresh
-        self._update_all()
+        inducer = self._state.get_inducer()
+        rpm = params.get("n", inducer.omega * 60.0 / (2.0 * math.pi))
+        flow_rate = params.get("Q", inducer.flow_rate)
+        alpha_deg = params.get("alpha1", math.degrees(inducer.alpha_in))
+        omega = rpm * 2.0 * math.pi / 60.0
+        alpha_rad = math.radians(alpha_deg)
+
+        area_in = math.pi * (inducer.r_in_tip ** 2 - inducer.r_in_hub ** 2)
+        area_out = math.pi * (inducer.r_out_tip ** 2 - inducer.r_out_hub ** 2)
+        c_m_in = flow_rate / area_in if area_in > 0.0 else inducer.c_m_in
+        c_m_out = flow_rate / area_out if area_out > 0.0 else inducer.c_m_out
+
+        operating_point = dict(inducer.operating_point)
+        operating_point["rpm"] = rpm
+        velocity_triangle_inputs = dict(inducer.velocity_triangle_inputs)
+        velocity_triangle_inputs.update(
+            {"alpha_in_deg": alpha_deg, "rpm": rpm, "flow_rate_m3s": flow_rate}
+        )
+        self._state.update_inducer_fields(
+            omega=omega,
+            flow_rate=flow_rate,
+            alpha_in=alpha_rad,
+            c_m_in=c_m_in,
+            c_m_out=c_m_out,
+            operating_point=operating_point,
+            velocity_triangle_inputs=velocity_triangle_inputs,
+        )
 
     def _toggle_params_window(self):
         """Show/hide the parameter input window."""
@@ -424,7 +458,6 @@ class BladePropertiesTab(QWidget):
     def _update_all(self):
         """Update all displays."""
         self._update_slip_calculation()
-        self._update_triangle_details()
         self._update_analysis_plots()
 
     def _update_slip_calculation(self):
@@ -450,89 +483,24 @@ class BladePropertiesTab(QWidget):
         # Slip calculation results are used in triangle details and analysis plots
         # No separate display widget needed - inputs are in Blade Parameters section
 
-    def _update_triangle_details(self):
-        """Update detailed triangle information display."""
-        # Create sample triangle data dict
-        # In full implementation, this would compute from actual triangle widget data
-        triangle_data = {
-            'inlet_hub': {
-                'u': 15.7,
-                'cu': 0.0,
-                'cm': 5.0,
-                'c': 5.0,
-                'w': 16.5,
-                'alpha': 90.0,
-                'beta': 25.0,
-                'cm_blocked': 5.5,
-                'beta_blocked': 26.0,
-                'beta_blade': 30.0,
-                'incidence': self._blade_properties.incidence_deg,
-            },
-            'inlet_tip': {
-                'u': 26.2,
-                'cu': 0.0,
-                'cm': 5.0,
-                'c': 5.0,
-                'w': 26.7,
-                'alpha': 90.0,
-                'beta': 30.0,
-                'cm_blocked': 5.5,
-                'beta_blocked': 31.0,
-                'beta_blade': 35.0,
-                'incidence': self._blade_properties.incidence_deg,
-            },
-            'outlet_hub': {
-                'u': 20.9,
-                'cu': 18.0,
-                'cm': 4.0,
-                'c': 18.4,
-                'w': 4.3,
-                'alpha': 12.5,
-                'beta': 55.0,
-                'cm_blocked': 4.4,
-                'beta_blocked': 56.0,
-                'beta_blade': 60.0,
-                'slip': self._blade_properties.mock_slip_deg,
-                'cu_slipped': 17.0,
-            },
-            'outlet_tip': {
-                'u': 31.4,
-                'cu': 27.0,
-                'cm': 4.0,
-                'c': 27.3,
-                'w': 5.9,
-                'alpha': 8.4,
-                'beta': 60.0,
-                'cm_blocked': 4.4,
-                'beta_blocked': 61.0,
-                'beta_blade': 65.0,
-                'slip': self._blade_properties.mock_slip_deg,
-                'cu_slipped': 26.0,
-            },
-        }
-
-        self.triangle_details.update_details(triangle_data)
 
     def _update_analysis_plots(self):
         """Update analysis plots."""
-        # Create sample plot data
-        # In full implementation, this would compute from actual blade angle distributions
+        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+
+        def _deg(value: float) -> float:
+            return value * 180.0 / math.pi
+
         plot_data = {
-            'spans': [0.0, 1.0],  # Hub to tip
-            'beta_inlet': [25.0, 30.0],
-            'beta_outlet': [55.0, 60.0],
-            'beta_blade_inlet': [30.0, 35.0],
-            'beta_blade_outlet': [60.0, 65.0],
-            'beta_blocked_inlet': [26.0, 31.0],
-            'beta_blocked_outlet': [56.0, 61.0],
-            'slip_angles': [
-                self._blade_properties.mock_slip_deg,
-                self._blade_properties.mock_slip_deg
-            ],
-            'incidence_angles': [
-                self._blade_properties.incidence_deg,
-                self._blade_properties.incidence_deg
-            ],
+            "spans": [0.0, 1.0],
+            "beta_inlet": [_deg(inlet_hub.beta), _deg(inlet_tip.beta)],
+            "beta_outlet": [_deg(outlet_hub.beta), _deg(outlet_tip.beta)],
+            "beta_blade_inlet": [_deg(inlet_hub.beta_blade_effective), _deg(inlet_tip.beta_blade_effective)],
+            "beta_blade_outlet": [_deg(outlet_hub.beta_blade), _deg(outlet_tip.beta_blade)],
+            "beta_blocked_inlet": [_deg(inlet_hub.beta_blocked), _deg(inlet_tip.beta_blocked)],
+            "beta_blocked_outlet": [_deg(outlet_hub.beta_blocked), _deg(outlet_tip.beta_blocked)],
+            "slip_angles": [_deg(outlet_hub.slip), _deg(outlet_tip.slip)],
+            "incidence_angles": [_deg(inlet_hub.incidence), _deg(inlet_tip.incidence)],
         }
 
         self.analysis_plots.update_data(plot_data)
@@ -540,6 +508,14 @@ class BladePropertiesTab(QWidget):
     def get_blade_properties(self) -> BladeProperties:
         """Get current blade properties."""
         return self._blade_properties
+
+    def get_blade_inputs_widget(self) -> BladeInputsWidget:
+        """Get the blade inputs widget."""
+        return self.blade_inputs_widget
+
+    def get_thickness_widget(self) -> BladeThicknessMatrixWidget:
+        """Get the blade thickness widget."""
+        return self.thickness_widget
 
     def set_blade_properties(self, properties: BladeProperties):
         """Set blade properties."""

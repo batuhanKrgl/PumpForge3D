@@ -18,6 +18,8 @@ from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
+from .app.state.app_state import AppState
+from .app.controllers.blade_properties_binder import BladePropertiesBinder
 from .tabs.design_tab import DesignTab
 from .tabs.blade_properties_tab import BladePropertiesTab
 from .tabs.export_tab import ExportTab
@@ -255,6 +257,7 @@ class MainWindow(QMainWindow):
         
         # Initialize design
         self.design = InducerDesign.create_default()
+        self.state = AppState.create_default()
         
         # Setup UI
         self._setup_ui()
@@ -289,7 +292,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.design_tab, "Design")
 
         # Blade Properties tab
-        self.blade_properties_tab = BladePropertiesTab()
+        self.blade_properties_tab = BladePropertiesTab(app_state=self.state)
         self.tab_widget.addTab(self.blade_properties_tab, "Blade properties")
 
         # Export tab (always last)
@@ -436,6 +439,7 @@ class MainWindow(QMainWindow):
         # Design tab signals
         self.design_tab.geometry_changed.connect(self._on_geometry_changed)
         self.design_tab.dimensions_changed.connect(self._on_dimensions_changed)
+        self.design_tab.geometry_committed.connect(self.state.apply_geometry_payload)
         
         # Export tab signals
         self.export_tab.design_imported.connect(self._on_design_imported)
@@ -445,6 +449,10 @@ class MainWindow(QMainWindow):
         
         # Tab change
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+        # Blade properties -> inducer binding
+        self.blade_binder = BladePropertiesBinder(self.blade_properties_tab, self.state, self)
+        self.blade_binder.connect_signals()
     
     def _on_geometry_changed(self):
         """Handle geometry change from design tab."""
@@ -501,6 +509,8 @@ class MainWindow(QMainWindow):
             self.main_splitter.setSizes([sizes[0] + sizes[1], 0])
 
             self.status_bar.showMessage("Blade properties tab (3D viewer hidden)")
+            if hasattr(self, "blade_binder"):
+                self.blade_binder.refresh_from_state(reason="tab_enter")
         else:
             # Show 3D viewer for other tabs
             if not self.right_splitter.isVisible():

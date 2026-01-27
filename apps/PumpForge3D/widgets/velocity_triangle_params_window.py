@@ -189,21 +189,27 @@ class VelocityTriangleParamsWindow(QWidget):
     def _on_rpm_changed(self, value):
         """Handle RPM change."""
         self._rpm = value
+        self._emit_parameters()
 
     def _on_flow_rate_changed(self, value):
         """Handle flow rate change."""
         self._flow_rate_lps = value
+        self._emit_parameters()
 
     def _on_alpha1_changed(self, value):
         """Handle inlet angle change."""
         self._alpha1_deg = value
+        self._emit_parameters()
 
     def _on_apply(self):
         """Emit parameters when Apply is clicked."""
+        self._emit_parameters()
+
+    def _emit_parameters(self):
         params = {
-            'n': self._rpm,
-            'Q': self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
-            'alpha1': self._alpha1_deg
+            "n": self._rpm,
+            "Q": self._flow_rate_lps / 1000.0,  # Convert L/s to m³/s
+            "alpha1": self._alpha1_deg,
         }
         self.parametersChanged.emit(params)
 
@@ -219,6 +225,15 @@ class VelocityTriangleParamsWindow(QWidget):
             'Q': self._flow_rate_lps / 1000.0,  # Convert to m³/s
             'alpha1': self._alpha1_deg
         }
+
+    def set_parameters(self, rpm: float, flow_rate_m3s: float, alpha1_deg: float) -> None:
+        """Update window inputs without emitting change signals."""
+        self._rpm = rpm
+        self._flow_rate_lps = flow_rate_m3s * 1000.0
+        self._alpha1_deg = alpha1_deg
+        self.rpm_spin.setValue(self._rpm)
+        self.flow_rate_spin.setValue(self._flow_rate_lps)
+        self.alpha1_spin.setValue(self._alpha1_deg)
 
     def update_geometry_display(self, r_hub: float, r_tip: float):
         """
