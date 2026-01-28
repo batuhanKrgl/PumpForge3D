@@ -153,7 +153,7 @@ class BladePropertiesTab(QWidget):
         """Create left input panel with collapsible groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(320)
+        panel.setMinimumWidth(380)
         panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
@@ -281,7 +281,7 @@ class BladePropertiesTab(QWidget):
         """Create right panel with analysis plots and triangle details."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(280)
+        panel.setMinimumWidth(360)
         panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
@@ -322,6 +322,7 @@ class BladePropertiesTab(QWidget):
         info_layout.setSpacing(4)
 
         self.inducer_info_table = InducerInfoTableWidget()
+        self.inducer_info_table.setMinimumWidth(320)
         info_layout.addWidget(self.inducer_info_table)
         splitter.addWidget(info_widget)
 
@@ -359,17 +360,18 @@ class BladePropertiesTab(QWidget):
         if not sizes:
             return
         min_left = self.main_splitter.widget(0).minimumWidth()
-        if sizes[0] < min_left:
-            total = sum(sizes)
-            remaining = max(total - min_left, 0)
-            tail = sizes[1] + sizes[2]
-            if tail > 0:
-                center = int(remaining * (sizes[1] / tail))
-                right = remaining - center
-            else:
-                center = remaining
-                right = 0
-            self.main_splitter.setSizes([min_left, center, right])
+        min_right = self.main_splitter.widget(2).minimumWidth()
+        total = sum(sizes)
+        left = max(sizes[0], min_left)
+        right = max(sizes[2], min_right)
+        remaining = max(total - left - right, 0)
+        if remaining == 0:
+            self.main_splitter.setSizes([left, remaining, right])
+            return
+        center = remaining
+        if sizes[1] > 0:
+            center = remaining
+        self.main_splitter.setSizes([left, center, right])
 
     def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         inducer = self._state.get_inducer()
