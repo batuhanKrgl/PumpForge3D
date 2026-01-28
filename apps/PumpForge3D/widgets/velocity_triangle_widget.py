@@ -469,8 +469,8 @@ class VelocityTriangleWidget(QWidget):
         # Component spans (wu and cu)
         x_span = global_x[1] - global_x[0]
         y_span = global_y[1] - global_y[0]
-        span_x = global_x[0] + 0.08 * x_span
-        span_x_cu = global_x[0] + 0.12 * x_span
+        span_x = -0.10 * tri.c_m
+        span_x_cu = -0.10 * tri.c_m
 
         # wu span: from 0 to wu
         if abs(tri.wu) > 0.1:
