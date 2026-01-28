@@ -21,6 +21,7 @@ from PySide6.QtGui import QFont
 from ..styles import (
     apply_combobox_style,
     apply_form_label_style,
+    apply_groupbox_style,
     apply_numeric_spinbox_style,
 )
 
@@ -490,6 +491,14 @@ class BladeInputsWidget(QWidget):
 
     def get_mock_slip_tip(self) -> float:
         return self._mock_slip_tip
+
+
+class StyledGroupBox(QGroupBox):
+    """Group box using shared Design tab styling helpers."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(title, parent)
+        apply_groupbox_style(self)
 
 
 class SlipCalculationWidget(QWidget):
