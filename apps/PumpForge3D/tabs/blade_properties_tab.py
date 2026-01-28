@@ -125,6 +125,7 @@ class BladePropertiesTab(QWidget):
         self.main_splitter.setHandleWidth(3)
         self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing to 0
         self.main_splitter.setCollapsible(0, False)
+        self.main_splitter.setCollapsible(2, False)
         self.main_splitter.splitterMoved.connect(self._clamp_splitter_sizes)
         apply_splitter_style(self.main_splitter)
 
