@@ -20,6 +20,7 @@ from pumpforge3d_core.geometry.meridional import MainDimensions, CurveMode
 
 from ..widgets.diagram_widget import DiagramWidget
 from ..widgets.analysis_plot import AnalysisPlotWidget
+from ..styles import apply_section_header_style
 
 
 class StyledSpinBox(QWidget):
@@ -114,20 +115,7 @@ class CollapsibleSection(QWidget):
         
         # Header button
         self.header = QPushButton(f"▼ {self.title}")
-        self.header.setStyleSheet("""
-            QPushButton {
-                text-align: left;
-                padding: 8px;
-                background: #313244;
-                border: none;
-                border-radius: 4px;
-                color: #cdd6f4;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #45475a;
-            }
-        """)
+        apply_section_header_style(self.header)
         self.header.clicked.connect(self._toggle)
         layout.addWidget(self.header)
         

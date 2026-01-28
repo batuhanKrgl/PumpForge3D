@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
+from ..styles import apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -52,21 +53,7 @@ class CollapsibleSection(QWidget):
 
         # Header button
         self.header = QPushButton(f"▼ {self.title}")
-        self.header.setStyleSheet("""
-            QPushButton {
-                text-align: left;
-                padding: 8px;
-                background: #313244;
-                border: none;
-                border-radius: 4px;
-                color: #cdd6f4;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background: #45475a;
-            }
-        """)
+        apply_section_header_style(self.header)
         self.header.clicked.connect(self._toggle)
         layout.addWidget(self.header)
 
@@ -95,7 +82,7 @@ class BladePropertiesTab(QWidget):
 
     Layout: 3 columns
     - Left (23%): Inputs (collapsible groups, compact controls)
-    - Center (52%): Velocity triangles (2×2 main visual)
+    - Center (52%): Velocity triangles (1×4 main visual)
     - Right (25%): Analysis & Details (plots + numeric data)
     """
 
@@ -137,6 +124,10 @@ class BladePropertiesTab(QWidget):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setHandleWidth(3)
         self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing to 0
+        self.main_splitter.setCollapsible(0, False)
+        self.main_splitter.setCollapsible(2, False)
+        self.main_splitter.splitterMoved.connect(self._clamp_splitter_sizes)
+        apply_splitter_style(self.main_splitter)
 
         # === LEFT PANEL: Inputs (compact, collapsible) ===
         left_panel = self._create_left_panel()
@@ -153,9 +144,9 @@ class BladePropertiesTab(QWidget):
         # Set initial proportions: 23% | 52% | 25% (for 1400px total = ~320 | 728 | 350)
         total_hint = 1400
         self.main_splitter.setSizes([int(total_hint * 0.23), int(total_hint * 0.52), int(total_hint * 0.25)])
-        self.main_splitter.setStretchFactor(0, 23)  # Inputs: less stretch
-        self.main_splitter.setStretchFactor(1, 52)  # Triangles: most stretch
-        self.main_splitter.setStretchFactor(2, 25)  # Analysis: moderate stretch
+        self.main_splitter.setStretchFactor(0, 0)  # Inputs: fixed/preferred
+        self.main_splitter.setStretchFactor(1, 1)  # Triangles: expanding
+        self.main_splitter.setStretchFactor(2, 0)  # Analysis: fixed/preferred
 
         main_layout.addWidget(self.main_splitter)
 
@@ -163,9 +154,8 @@ class BladePropertiesTab(QWidget):
         """Create left input panel with collapsible groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(280)
-        panel.setMaximumWidth(380)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setMinimumWidth(420)
+        panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -209,6 +199,12 @@ class BladePropertiesTab(QWidget):
 
         scroll.setWidget(scroll_content)
         panel_layout.addWidget(scroll)
+
+        min_content_width = max(
+            self.thickness_widget.sizeHint().width(),
+            self.blade_inputs_widget.sizeHint().width(),
+        )
+        panel.setMinimumWidth(max(panel.minimumWidth(), min_content_width + 24))
 
         return panel
 
@@ -268,7 +264,7 @@ class BladePropertiesTab(QWidget):
         header_layout.addWidget(params_btn)
 
         # Mini info label (optional, shows current settings)
-        self.triangle_info_label = QLabel("2×2 Subplots | Hub & Tip")
+        self.triangle_info_label = QLabel("1×4 Subplots | Hub/Shroud Leading/Trailing")
         self.triangle_info_label.setStyleSheet("""
             QLabel {
                 color: #a6adc8;
@@ -292,9 +288,8 @@ class BladePropertiesTab(QWidget):
         """Create right panel with analysis plots and triangle details."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(320)
-        panel.setMaximumWidth(500)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setMinimumWidth(380)
+        panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -325,6 +320,7 @@ class BladePropertiesTab(QWidget):
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
         splitter.setChildrenCollapsible(False)
+        apply_splitter_style(splitter)
 
         # === Inducer Info Table (top) ===
         info_widget = QWidget()
@@ -333,6 +329,7 @@ class BladePropertiesTab(QWidget):
         info_layout.setSpacing(4)
 
         self.inducer_info_table = InducerInfoTableWidget()
+        self.inducer_info_table.setMinimumWidth(340)
         info_layout.addWidget(self.inducer_info_table)
         splitter.addWidget(info_widget)
 
@@ -364,6 +361,22 @@ class BladePropertiesTab(QWidget):
         self.blade_inputs_widget.mockSlipChanged.connect(self._on_mock_slip_changed)
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
+
+    def _clamp_splitter_sizes(self):
+        sizes = self.main_splitter.sizes()
+        if not sizes:
+            return
+        min_left = self.main_splitter.widget(0).minimumWidth()
+        min_center = self.main_splitter.widget(1).minimumWidth()
+        min_right = self.main_splitter.widget(2).minimumWidth()
+        total = sum(sizes)
+        left = max(sizes[0], min_left)
+        right = max(sizes[2], min_right)
+        remaining = max(total - left - right, 0)
+        center = max(remaining, min_center)
+        if left + center + right > total:
+            center = max(total - left - right, min_center)
+        self.main_splitter.setSizes([left, center, right])
 
     def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         inducer = self._state.get_inducer()

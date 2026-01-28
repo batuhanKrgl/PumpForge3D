@@ -18,6 +18,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
 
+from ..styles import (
+    apply_combobox_style,
+    apply_form_label_style,
+    apply_groupbox_style,
+    apply_numeric_spinbox_style,
+)
+
 from pumpforge3d_core.analysis.blade_properties import (
     BladeThicknessMatrix, SlipCalculationResult, calculate_slip
 )
@@ -73,6 +80,7 @@ class StyledSpinBox(QWidget):
         self.spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.spinbox.setFixedWidth(80)
         self.spinbox.editingFinished.connect(self._on_editing_finished)
+        apply_numeric_spinbox_style(self.spinbox)
         layout.addWidget(self.spinbox)
 
         # Plus button - larger for better touch target
@@ -306,11 +314,11 @@ class BladeInputsWidget(QWidget):
         self._connect_signals()
 
     def _setup_ui(self):
-        layout = QFormLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
-        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.setHorizontalSpacing(16)
+        layout.setVerticalSpacing(8)
+        self.setMinimumWidth(340)
 
         # Blade count z (integer)
         blade_count_spin = StyledSpinBox()
@@ -320,7 +328,13 @@ class BladeInputsWidget(QWidget):
         blade_count_spin.setValue(self._blade_count)
         blade_count_spin.setToolTip("Number of blades (typically 5-7 for pumps)")
         self.blade_count_spin = blade_count_spin
-        layout.addRow("z:", blade_count_spin)
+        top_form = QFormLayout()
+        top_form.setSpacing(8)
+        top_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        top_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        blade_count_label = QLabel("z:")
+        apply_form_label_style(blade_count_label)
+        top_form.addRow(blade_count_label, blade_count_spin)
 
         # Incidence i (degrees) - with subscript
         incidence_hub_spin = StyledSpinBox()
@@ -331,7 +345,11 @@ class BladeInputsWidget(QWidget):
         incidence_hub_spin.setValue(self._incidence_hub)
         incidence_hub_spin.setToolTip("Hub incidence angle: β₁ - βB₁ (flow angle - blade angle)")
         self.incidence_hub_spin = incidence_hub_spin
-        layout.addRow(create_subscript_label("i", "1,hub"), incidence_hub_spin)
+        hub_form = QFormLayout()
+        hub_form.setSpacing(6)
+        hub_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        hub_header = QLabel("Hub")
+        apply_form_label_style(hub_header)
 
         incidence_tip_spin = StyledSpinBox()
         incidence_tip_spin.setRange(-20.0, 20.0)
@@ -341,7 +359,11 @@ class BladeInputsWidget(QWidget):
         incidence_tip_spin.setValue(self._incidence_tip)
         incidence_tip_spin.setToolTip("Tip incidence angle: β₁ - βB₁ (flow angle - blade angle)")
         self.incidence_tip_spin = incidence_tip_spin
-        layout.addRow(create_subscript_label("i", "1,tip"), incidence_tip_spin)
+        tip_form = QFormLayout()
+        tip_form.setSpacing(6)
+        tip_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        tip_header = QLabel("Tip/Shroud")
+        apply_form_label_style(tip_header)
 
         # Slip mode (combobox)
         slip_mode_combo = QComboBox()
@@ -349,25 +371,19 @@ class BladeInputsWidget(QWidget):
         slip_mode_combo.setCurrentText(self._slip_mode)
         slip_mode_combo.setFixedWidth(134)  # Match StyledSpinBox total width
         slip_mode_combo.setToolTip("Slip calculation method:\n• Mock: Manual slip angle\n• Wiesner: Empirical formula\n• Gülich: CFturbo recommended")
-        slip_mode_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                padding: 4px 6px;
-                font-size: 11px;
-                border-radius: 4px;
-            }
-            QComboBox:hover { background-color: #45475a; }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background-color: #313244;
-                color: #cdd6f4;
-                selection-background-color: #45475a;
-            }
-        """)
+        apply_combobox_style(slip_mode_combo)
         self.slip_mode_combo = slip_mode_combo
-        layout.addRow("Slip:", slip_mode_combo)
+        slip_label = QLabel("Slip:")
+        apply_form_label_style(slip_label)
+        top_form.addRow(slip_label, slip_mode_combo)
+
+        incidence_hub_label = create_subscript_label("i", "1,hub")
+        apply_form_label_style(incidence_hub_label)
+        hub_form.addRow(incidence_hub_label, incidence_hub_spin)
+
+        incidence_tip_label = create_subscript_label("i", "1,tip")
+        apply_form_label_style(incidence_tip_label)
+        tip_form.addRow(incidence_tip_label, incidence_tip_spin)
 
         # Mock slip δ (degrees, conditional)
         mock_slip_hub_spin = StyledSpinBox()
@@ -379,8 +395,9 @@ class BladeInputsWidget(QWidget):
         mock_slip_hub_spin.setToolTip("Hub slip angle (δ): deviation from blade angle at outlet")
         self.mock_slip_hub_spin = mock_slip_hub_spin
         self.mock_slip_hub_label = QLabel("δ hub:")
+        apply_form_label_style(self.mock_slip_hub_label)
         self.mock_slip_hub_label.setToolTip("Slip angle (hub)")
-        layout.addRow(self.mock_slip_hub_label, mock_slip_hub_spin)
+        hub_form.addRow(self.mock_slip_hub_label, mock_slip_hub_spin)
 
         mock_slip_tip_spin = StyledSpinBox()
         mock_slip_tip_spin.setRange(-30.0, 30.0)
@@ -391,8 +408,23 @@ class BladeInputsWidget(QWidget):
         mock_slip_tip_spin.setToolTip("Tip slip angle (δ): deviation from blade angle at outlet")
         self.mock_slip_tip_spin = mock_slip_tip_spin
         self.mock_slip_tip_label = QLabel("δ tip:")
+        apply_form_label_style(self.mock_slip_tip_label)
         self.mock_slip_tip_label.setToolTip("Slip angle (tip)")
-        layout.addRow(self.mock_slip_tip_label, mock_slip_tip_spin)
+        tip_form.addRow(self.mock_slip_tip_label, mock_slip_tip_spin)
+
+        layout.addLayout(top_form, 0, 0, 1, 2)
+
+        hub_column = QVBoxLayout()
+        hub_column.setSpacing(4)
+        hub_column.addWidget(hub_header)
+        hub_column.addLayout(hub_form)
+        layout.addLayout(hub_column, 1, 0)
+
+        tip_column = QVBoxLayout()
+        tip_column.setSpacing(4)
+        tip_column.addWidget(tip_header)
+        tip_column.addLayout(tip_form)
+        layout.addLayout(tip_column, 1, 1)
 
         self._update_mock_slip_visibility()
 
@@ -459,6 +491,14 @@ class BladeInputsWidget(QWidget):
 
     def get_mock_slip_tip(self) -> float:
         return self._mock_slip_tip
+
+
+class StyledGroupBox(QGroupBox):
+    """Group box using shared Design tab styling helpers."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(title, parent)
+        apply_groupbox_style(self)
 
 
 class SlipCalculationWidget(QWidget):
