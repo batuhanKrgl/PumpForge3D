@@ -224,44 +224,69 @@ class VelocityTriangleWidget(QWidget):
             ("Shroud @ Trailing Edge", outlet_tip, outlet_tip.beta_blade),
         ]
 
-        global_y = self._collect_global_ylim(triangles_data)
-        global_x = self._collect_global_xlim(triangles_data, global_y)
+        global_x, global_y = self._collect_global_bounds(triangles_data)
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
 
+        self._apply_layout()
+        global_x, global_y = self._fit_bounds_to_canvas(axes[0], global_x, global_y)
+
         for ax, (title, tri, beta_blade) in zip(axes, triangles_data):
             self._draw_tri(ax, tri, beta_blade, title, global_y, global_x)
 
-        self._apply_layout()
         self.main_canvas.draw()
 
     def _apply_layout(self) -> None:
         apply_layout_to_figure(self.main_fig)
         self.main_fig.subplots_adjust(top=0.96, bottom=0.10, left=0.06, right=0.98, wspace=0.35)
 
-    def _collect_global_ylim(self, triangles_data) -> tuple[float, float]:
+    def _collect_global_bounds(self, triangles_data) -> tuple[tuple[float, float], tuple[float, float]]:
+        x_points = []
         y_points = []
+        max_c_m = max(tri.c_m for _, tri, _ in triangles_data)
         for _, tri, beta_blade in triangles_data:
             points = self._triangle_points(tri, beta_blade)
+            x_points.extend(points[:, 0].tolist())
             y_points.extend(points[:, 1].tolist())
+        x_points.append(-0.20 * max_c_m)
+        x_min = min(x_points)
+        x_max = max(x_points)
         y_min = min(y_points)
         y_max = max(y_points)
+        x_span = max(x_max - x_min, 1.0)
         y_span = max(y_max - y_min, 1.0)
-        margin = 0.10 * y_span
-        return y_min - margin, y_max + margin
+        x_margin = 0.10 * x_span
+        y_margin = 0.10 * y_span
+        return (x_min - x_margin, x_max + x_margin), (y_min - y_margin, y_max + y_margin)
 
-    def _collect_global_xlim(self, triangles_data, global_y) -> tuple[float, float]:
-        max_c_m = max(tri.c_m for _, tri, _ in triangles_data)
-        y_span = max(global_y[1] - global_y[0], 1.0)
-        margin = 0.10 * y_span
-        x_span = y_span
-        x_min = min(0.0, max_c_m + margin - x_span)
-        x_max = x_min + x_span
-        if x_max < max_c_m + margin:
-            x_max = max_c_m + margin
-            x_min = x_max - x_span
-        return x_min, x_max
+    def _fit_bounds_to_canvas(
+        self,
+        ax,
+        x_bounds: tuple[float, float],
+        y_bounds: tuple[float, float],
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        x_min, x_max = x_bounds
+        y_min, y_max = y_bounds
+        x_span = max(x_max - x_min, 1.0)
+        y_span = max(y_max - y_min, 1.0)
+        position = ax.get_position()
+        fig_w, fig_h = self.main_fig.get_size_inches()
+        width = max(position.width * fig_w, 1e-6)
+        height = max(position.height * fig_h, 1e-6)
+        target_ratio = width / height
+        current_ratio = x_span / y_span
+        if current_ratio < target_ratio:
+            target_span = y_span * target_ratio
+            center = (x_min + x_max) / 2
+            x_min = center - target_span / 2
+            x_max = center + target_span / 2
+        elif current_ratio > target_ratio:
+            target_span = x_span / target_ratio
+            center = (y_min + y_max) / 2
+            y_min = center - target_span / 2
+            y_max = center + target_span / 2
+        return (x_min, x_max), (y_min, y_max)
 
     def _triangle_points(self, tri, beta_blade) -> np.ndarray:
         o = np.array([0.0, 0.0])
@@ -469,8 +494,8 @@ class VelocityTriangleWidget(QWidget):
         # Component spans (wu and cu)
         x_span = global_x[1] - global_x[0]
         y_span = global_y[1] - global_y[0]
-        span_x = -0.10 * tri.c_m
-        span_x_cu = -0.10 * tri.c_m
+        span_x = -0.20 * tri.c_m
+        span_x_cu = -0.20 * tri.c_m
 
         # wu span: from 0 to wu
         if abs(tri.wu) > 0.1:
