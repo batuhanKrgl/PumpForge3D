@@ -21,6 +21,7 @@ from ..app.state.app_state import AppState
 
 
 from ..utils.matplotlib_layout import apply_layout_to_figure
+from ..styles import apply_form_label_style
 
 
 class VelocityTriangleWidget(QWidget):
@@ -93,7 +94,8 @@ class VelocityTriangleWidget(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
         top_layout.addWidget(self.toolbar)
-        top_layout.addWidget(self.legend_widget, 1)
+        top_layout.addStretch()
+        top_layout.addWidget(self.legend_widget)
 
         # Data viewer table
         self.data_viewer = QTableWidget()
@@ -135,11 +137,12 @@ class VelocityTriangleWidget(QWidget):
 
     def _build_legend_widget(self) -> QWidget:
         legend = QWidget()
-        legend.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        legend.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         legend.setFixedHeight(28)
         legend_layout = QHBoxLayout(legend)
         legend_layout.setContentsMargins(8, 2, 8, 2)
         legend_layout.setSpacing(10)
+        legend_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         legend_items = [
             ("Blue: c (absolute)", self.COLOR_C, 2, Qt.PenStyle.SolidLine),
@@ -165,7 +168,7 @@ class VelocityTriangleWidget(QWidget):
         sample = QLabel()
         sample.setPixmap(self._line_pixmap(color, width, style))
         label = QLabel(text)
-        label.setStyleSheet("color: #cdd6f4; font-size: 9px;")
+        apply_form_label_style(label)
 
         item_layout.addWidget(sample)
         item_layout.addWidget(label)
