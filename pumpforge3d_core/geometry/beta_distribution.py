@@ -34,7 +34,7 @@ class BetaDistributionModel:
         tip_theta: array (3,) theta positions for tip CPs j=1,2,3
         tip_beta: array (3,) beta values for tip CPs j=1,2,3
     """
-    span_count: int = 5
+    span_count: int = 7
     span_fractions: NDArray[np.float64] = field(default_factory=lambda: np.array([]))
     beta_in: NDArray[np.float64] = field(default_factory=lambda: np.array([]))
     beta_out: NDArray[np.float64] = field(default_factory=lambda: np.array([]))

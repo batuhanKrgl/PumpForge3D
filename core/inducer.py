@@ -67,6 +67,9 @@ class Inducer:
     flow_rate: float = 0.01
     rho: float = 1140.0
     g: float = 9.80665
+    span_count: int = 7
+    beta_blade_in_span: list[float] = field(default_factory=list)
+    beta_blade_out_span: list[float] = field(default_factory=list)
     stations_geom: Dict[str, StationGeom] = field(default_factory=dict)
     stations_blade: Dict[str, StationBlade] = field(default_factory=dict)
     stations_flow: Dict[str, StationFlow] = field(default_factory=dict)
@@ -78,6 +81,7 @@ class Inducer:
 
     def __post_init__(self) -> None:
         self._ensure_station_defaults()
+        self._ensure_spanwise_defaults()
         self.validate()
 
     def validate(self) -> None:
@@ -110,6 +114,8 @@ class Inducer:
             raise ValueError("rho must be a positive finite value.")
         if self.g <= 0:
             raise ValueError("g must be a positive finite value.")
+        if self.span_count < 2:
+            raise ValueError("span_count must be at least 2.")
 
     def make_inlet_triangle(self, radius: float | None = None) -> InletTriangle:
         """Create an inlet triangle for the requested radius."""
@@ -180,6 +186,151 @@ class Inducer:
             "shroud_le": StationFlow(c_m=self.c_m_in, omega=self.omega, alpha=self.alpha_in),
             "shroud_te": StationFlow(c_m=self.c_m_out, omega=self.omega, alpha=None),
         }
+
+    def _ensure_spanwise_defaults(self) -> None:
+        if not self.beta_blade_in_span:
+            self.beta_blade_in_span = [self.beta_blade_in] * self.span_count
+        if not self.beta_blade_out_span:
+            self.beta_blade_out_span = [self.beta_blade_out] * self.span_count
+        if len(self.beta_blade_in_span) != self.span_count:
+            self.beta_blade_in_span = self._resample_span_values(self.beta_blade_in_span, self.span_count)
+        if len(self.beta_blade_out_span) != self.span_count:
+            self.beta_blade_out_span = self._resample_span_values(self.beta_blade_out_span, self.span_count)
+        self.stations_blade = self._update_station_blades_for_spanwise(
+            self.beta_blade_in_span,
+            self.beta_blade_out_span,
+        )
+
+    @staticmethod
+    def _resample_span_values(values: list[float], new_count: int) -> list[float]:
+        if new_count <= 0:
+            return []
+        if not values:
+            return [0.0] * new_count
+        if new_count == 1:
+            return [values[0]]
+        old_count = len(values)
+        if old_count == 1:
+            return [values[0]] * new_count
+        resampled = []
+        for i in range(new_count):
+            position = (old_count - 1) * (i / (new_count - 1))
+            idx = int(math.floor(position))
+            if idx >= old_count - 1:
+                resampled.append(values[-1])
+                continue
+            frac = position - idx
+            resampled.append(values[idx] * (1.0 - frac) + values[idx + 1] * frac)
+        return resampled
+
+    @staticmethod
+    def linear_span_distribution(hub_value: float, tip_value: float, count: int) -> list[float]:
+        if count <= 1:
+            return [hub_value]
+        step = (tip_value - hub_value) / (count - 1)
+        return [hub_value + step * idx for idx in range(count)]
+
+    def span_fractions(self) -> list[float]:
+        if self.span_count <= 1:
+            return [0.0]
+        step = 1.0 / (self.span_count - 1)
+        return [idx * step for idx in range(self.span_count)]
+
+    def span_labels(self) -> list[str]:
+        if self.span_count <= 0:
+            return []
+        labels = ["Hub"]
+        for idx in range(1, self.span_count - 1):
+            labels.append(f"S{idx}")
+        if self.span_count > 1:
+            labels.append("Tip")
+        return labels
+
+    def set_span_count(self, span_count: int) -> "Inducer":
+        span_count = max(2, int(span_count))
+        beta_in = self._resample_span_values(self.beta_blade_in_span, span_count)
+        beta_out = self._resample_span_values(self.beta_blade_out_span, span_count)
+        return replace(
+            self,
+            span_count=span_count,
+            beta_blade_in_span=beta_in,
+            beta_blade_out_span=beta_out,
+            stations_blade=self._update_station_blades_for_spanwise(beta_in, beta_out),
+        )
+
+    def set_beta_blade_distribution(
+        self,
+        beta_in: list[float],
+        beta_out: list[float],
+    ) -> "Inducer":
+        if len(beta_in) != len(beta_out):
+            raise ValueError("beta_in and beta_out must have the same length.")
+        if not beta_in:
+            raise ValueError("beta_in must not be empty.")
+        span_count = len(beta_in)
+        beta_in_values = list(beta_in)
+        beta_out_values = list(beta_out)
+        beta_in_avg = (beta_in_values[0] + beta_in_values[-1]) / 2.0
+        beta_out_avg = (beta_out_values[0] + beta_out_values[-1]) / 2.0
+        return replace(
+            self,
+            span_count=span_count,
+            beta_blade_in_span=beta_in_values,
+            beta_blade_out_span=beta_out_values,
+            beta_blade_in=beta_in_avg,
+            beta_blade_out=beta_out_avg,
+            stations_blade=self._update_station_blades_for_spanwise(beta_in_values, beta_out_values),
+        )
+
+    def _update_station_blades_for_spanwise(
+        self,
+        beta_in: list[float],
+        beta_out: list[float],
+    ) -> Dict[str, StationBlade]:
+        stations_blade = dict(self.stations_blade)
+        if "hub_le" in stations_blade:
+            stations_blade["hub_le"] = replace(stations_blade["hub_le"], beta_blade=beta_in[0])
+        if "shroud_le" in stations_blade:
+            stations_blade["shroud_le"] = replace(stations_blade["shroud_le"], beta_blade=beta_in[-1])
+        if "hub_te" in stations_blade:
+            stations_blade["hub_te"] = replace(stations_blade["hub_te"], beta_blade=beta_out[0])
+        if "shroud_te" in stations_blade:
+            stations_blade["shroud_te"] = replace(stations_blade["shroud_te"], beta_blade=beta_out[-1])
+        return stations_blade
+
+    def build_spanwise_triangles(
+        self,
+        indices: Optional[Iterable[int]] = None,
+    ) -> Dict[int, tuple[InletTriangle, OutletTriangle]]:
+        triangles: Dict[int, tuple[InletTriangle, OutletTriangle]] = {}
+        span_indices = list(indices) if indices is not None else list(range(self.span_count))
+        fractions = self.span_fractions()
+        for idx in span_indices:
+            fraction = fractions[idx]
+            r_in = self.r_in_hub + fraction * (self.r_in_tip - self.r_in_hub)
+            r_out = self.r_out_hub + fraction * (self.r_out_tip - self.r_out_hub)
+            inlet = InletTriangle(
+                r=r_in,
+                omega=self.omega,
+                c_m=self.c_m_in,
+                alpha=self.alpha_in,
+                blade_number=self.blade_number,
+                blockage=self.blockage_in,
+                incidence=self.incidence_in,
+                beta_blade=self.beta_blade_in_span[idx],
+            )
+            outlet = OutletTriangle(
+                r=r_out,
+                omega=self.omega,
+                c_m=self.c_m_out,
+                beta_blade=self.beta_blade_out_span[idx],
+                blade_number=self.blade_number,
+                blockage=self.blockage_out,
+                slip=self.slip_out,
+                slip_angle_mock=self.slip_out,
+            )
+            triangles[idx] = (inlet, outlet)
+        return triangles
 
     def _build_inlet_triangle(self, station_key: str) -> InletTriangle:
         geom = self.stations_geom[station_key]
@@ -449,6 +600,9 @@ class Inducer:
             "flow_rate": float(self.flow_rate),
             "rho": float(self.rho),
             "g": float(self.g),
+            "span_count": int(self.span_count),
+            "beta_blade_in_span": [float(val) for val in self.beta_blade_in_span],
+            "beta_blade_out_span": [float(val) for val in self.beta_blade_out_span],
             "stations_geom": {key: {"z": geom.z, "r": geom.r} for key, geom in self.stations_geom.items()},
             "stations_blade": {
                 key: {
@@ -503,6 +657,9 @@ class Inducer:
             flow_rate=float(data.get("flow_rate", 0.01)),
             rho=float(data.get("rho", 1140.0)),
             g=float(data.get("g", 9.80665)),
+            span_count=int(data.get("span_count", 7)),
+            beta_blade_in_span=[float(val) for val in data.get("beta_blade_in_span", [])],
+            beta_blade_out_span=[float(val) for val in data.get("beta_blade_out_span", [])],
             stations_geom={
                 key: StationGeom(z=float(val["z"]), r=float(val["r"]))
                 for key, val in data.get("stations_geom", {}).items()

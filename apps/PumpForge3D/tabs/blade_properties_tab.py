@@ -25,6 +25,7 @@ from ..styles import apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
+from ..widgets.beta_editor_widget import BetaDistributionEditorWidget
 from ..widgets.blade_analysis_plots import BladeAnalysisPlotWidget
 from ..widgets.velocity_triangle_params_window import VelocityTriangleParamsWindow
 from ..widgets.inducer_info_table import InducerInfoTableWidget
@@ -113,6 +114,7 @@ class BladePropertiesTab(QWidget):
         self._state.inducer_changed.connect(self._on_inducer_changed)
         self._state.inducer_info_changed.connect(self._on_inducer_info_changed)
         self._on_inducer_info_changed(self._state.get_inducer().build_info_snapshot())
+        self._on_beta_distribution_changed(self._state.get_beta_distribution_deg())
 
     def _setup_ui(self):
         """Setup the 3-column tab layout."""
@@ -195,6 +197,23 @@ class BladePropertiesTab(QWidget):
 
         scroll_layout.addWidget(params_group)
 
+        # === 3. Spanwise Beta Distribution (collapsible) ===
+        beta_group = CollapsibleSection("Spanwise β Blade")
+        beta_container = QWidget()
+        beta_layout = QVBoxLayout(beta_container)
+        beta_layout.setContentsMargins(0, 0, 0, 0)
+        beta_layout.setSpacing(6)
+
+        self.beta_calc_button = QPushButton("Calc")
+        self.beta_calc_button.setToolTip("Recompute spanwise beta distribution using current method")
+        beta_layout.addWidget(self.beta_calc_button)
+
+        self.beta_widget = BetaDistributionEditorWidget()
+        beta_layout.addWidget(self.beta_widget)
+
+        beta_group.addWidget(beta_container)
+        scroll_layout.addWidget(beta_group)
+
         scroll_layout.addStretch()
 
         scroll.setWidget(scroll_content)
@@ -203,6 +222,7 @@ class BladePropertiesTab(QWidget):
         min_content_width = max(
             self.thickness_widget.sizeHint().width(),
             self.blade_inputs_widget.sizeHint().width(),
+            self.beta_widget.sizeHint().width(),
         )
         panel.setMinimumWidth(max(panel.minimumWidth(), min_content_width + 24))
 
@@ -361,6 +381,12 @@ class BladePropertiesTab(QWidget):
         self.blade_inputs_widget.mockSlipChanged.connect(self._on_mock_slip_changed)
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
+        self.beta_calc_button.clicked.connect(self._on_beta_calc_clicked)
+        self.beta_widget.betaCellEdited.connect(self._on_beta_cell_edited)
+        self.beta_widget.spanCountChanged.connect(self._on_span_count_changed)
+        self.beta_widget.linearModeChanged.connect(self._on_linear_mode_changed)
+        self._state.beta_distribution_changed.connect(self._on_beta_distribution_changed)
+        self._state.triangles_spanwise_changed.connect(self._on_spanwise_triangles_changed)
 
     def _clamp_splitter_sizes(self):
         sizes = self.main_splitter.sizes()
@@ -428,6 +454,35 @@ class BladePropertiesTab(QWidget):
         """Handle velocity triangle input changes."""
         self._update_analysis_plots()
 
+    def _on_spanwise_triangles_changed(self, payload: dict) -> None:
+        """Handle spanwise triangle updates."""
+        self._update_analysis_plots()
+
+    def _on_beta_calc_clicked(self) -> None:
+        """Handle Calc button for beta distribution."""
+        self._state.run_calc_current_method()
+
+    def _on_span_count_changed(self, value: int) -> None:
+        self._state.apply_span_settings({"span_count": value})
+
+    def _on_linear_mode_changed(self, linear_inlet: bool, linear_outlet: bool) -> None:
+        self._state.set_linear_modes(inlet=linear_inlet, outlet=linear_outlet)
+
+    def _on_beta_cell_edited(self, row: int, col: int, value: float) -> None:
+        side = "inlet" if col == 0 else "outlet"
+        self._state.apply_beta_table_edit({"index": row, "side": side, "value_deg": value})
+
+    def _on_beta_distribution_changed(self, payload: dict) -> None:
+        self.beta_widget.set_beta_distribution(
+            span_count=payload["span_count"],
+            beta_in=payload["beta_in_deg"],
+            beta_out=payload["beta_out_deg"],
+            linear_inlet=payload["linear_inlet"],
+            linear_outlet=payload["linear_outlet"],
+        )
+        self._update_slip_calculation()
+        self._update_analysis_plots()
+
     def _on_params_changed(self, params: dict):
         """Handle parameter window changes."""
         self._state.apply_numeric_inputs(params)
@@ -448,12 +503,9 @@ class BladePropertiesTab(QWidget):
 
     def _update_slip_calculation(self):
         """Update slip calculation display."""
-        # Get outlet blade angles from triangle widget
-        # For simplicity, use average of hub and tip
-        beta_blade_out_hub = 60.0  # Placeholder - should get from triangle widget
-        beta_blade_out_tip = 65.0  # Placeholder
-
-        beta_blade_avg = (beta_blade_out_hub + beta_blade_out_tip) / 2.0
+        beta_distribution = self._state.get_beta_distribution_deg()
+        beta_out = beta_distribution["beta_out_deg"]
+        beta_blade_avg = (beta_out[0] + beta_out[-1]) / 2.0
 
         # Calculate slip (used internally for triangle calculations)
         slip_result = calculate_slip(
@@ -472,21 +524,59 @@ class BladePropertiesTab(QWidget):
 
     def _update_analysis_plots(self):
         """Update analysis plots."""
-        inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+        triangles = self._state.get_spanwise_triangles()
+        if triangles:
+            indices = sorted(triangles.keys())
+            span_count = max(indices) + 1 if indices else 0
+            spans = [idx / (span_count - 1) if span_count > 1 else 0.0 for idx in indices]
 
-        def _deg(value: float) -> float:
-            return value * 180.0 / math.pi
+            def _deg(value: float) -> float:
+                return value * 180.0 / math.pi
+
+            beta_inlet = []
+            beta_outlet = []
+            beta_blade_inlet = []
+            beta_blade_outlet = []
+            beta_blocked_inlet = []
+            beta_blocked_outlet = []
+            slip_angles = []
+            incidence_angles = []
+            for idx in indices:
+                inlet, outlet = triangles[idx]
+                beta_inlet.append(_deg(inlet.beta))
+                beta_outlet.append(_deg(outlet.beta))
+                beta_blade_inlet.append(_deg(inlet.beta_blade_effective))
+                beta_blade_outlet.append(_deg(outlet.beta_blade))
+                beta_blocked_inlet.append(_deg(inlet.beta_blocked))
+                beta_blocked_outlet.append(_deg(outlet.beta_blocked))
+                slip_angles.append(_deg(outlet.slip))
+                incidence_angles.append(_deg(inlet.incidence))
+        else:
+            inlet_hub, inlet_tip, outlet_hub, outlet_tip = self._get_state_triangles()
+
+            def _deg(value: float) -> float:
+                return value * 180.0 / math.pi
+
+            spans = [0.0, 1.0]
+            beta_inlet = [_deg(inlet_hub.beta), _deg(inlet_tip.beta)]
+            beta_outlet = [_deg(outlet_hub.beta), _deg(outlet_tip.beta)]
+            beta_blade_inlet = [_deg(inlet_hub.beta_blade_effective), _deg(inlet_tip.beta_blade_effective)]
+            beta_blade_outlet = [_deg(outlet_hub.beta_blade), _deg(outlet_tip.beta_blade)]
+            beta_blocked_inlet = [_deg(inlet_hub.beta_blocked), _deg(inlet_tip.beta_blocked)]
+            beta_blocked_outlet = [_deg(outlet_hub.beta_blocked), _deg(outlet_tip.beta_blocked)]
+            slip_angles = [_deg(outlet_hub.slip), _deg(outlet_tip.slip)]
+            incidence_angles = [_deg(inlet_hub.incidence), _deg(inlet_tip.incidence)]
 
         plot_data = {
-            "spans": [0.0, 1.0],
-            "beta_inlet": [_deg(inlet_hub.beta), _deg(inlet_tip.beta)],
-            "beta_outlet": [_deg(outlet_hub.beta), _deg(outlet_tip.beta)],
-            "beta_blade_inlet": [_deg(inlet_hub.beta_blade_effective), _deg(inlet_tip.beta_blade_effective)],
-            "beta_blade_outlet": [_deg(outlet_hub.beta_blade), _deg(outlet_tip.beta_blade)],
-            "beta_blocked_inlet": [_deg(inlet_hub.beta_blocked), _deg(inlet_tip.beta_blocked)],
-            "beta_blocked_outlet": [_deg(outlet_hub.beta_blocked), _deg(outlet_tip.beta_blocked)],
-            "slip_angles": [_deg(outlet_hub.slip), _deg(outlet_tip.slip)],
-            "incidence_angles": [_deg(inlet_hub.incidence), _deg(inlet_tip.incidence)],
+            "spans": spans,
+            "beta_inlet": beta_inlet,
+            "beta_outlet": beta_outlet,
+            "beta_blade_inlet": beta_blade_inlet,
+            "beta_blade_outlet": beta_blade_outlet,
+            "beta_blocked_inlet": beta_blocked_inlet,
+            "beta_blocked_outlet": beta_blocked_outlet,
+            "slip_angles": slip_angles,
+            "incidence_angles": incidence_angles,
         }
 
         self.analysis_plots.update_data(plot_data)
