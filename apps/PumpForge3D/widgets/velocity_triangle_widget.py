@@ -117,8 +117,8 @@ class VelocityTriangleWidget(QWidget):
         """)
 
         main_layout.addWidget(self.toolbar)
-        main_layout.addWidget(self.main_canvas, 1)
         main_layout.addWidget(self.legend_widget)
+        main_layout.addWidget(self.main_canvas, 1)
         main_layout.addWidget(self.data_viewer)
 
         # Hide data viewer by default (can be shown via set_data_viewer_visible)
@@ -222,37 +222,58 @@ class VelocityTriangleWidget(QWidget):
             ("Shroud @ Trailing Edge", outlet_tip, outlet_tip.beta_blade),
         ]
 
-        for idx, (title, tri, beta_blade) in enumerate(triangles_data):
-            ax = axes[idx]
-            self._draw_tri(ax, tri, beta_blade, title)
-            ax.relim()
-            ax.autoscale_view()
-
-        self._equalize_ylim_only(axes)
-        self._apply_box_aspect(axes)
+        global_y = self._collect_global_ylim(triangles_data)
 
         # Populate data viewer table
         self._update_data_viewer(inlet_hub, inlet_tip, outlet_hub, outlet_tip)
-        
+
+        for ax, (title, tri, beta_blade) in zip(axes, triangles_data):
+            self._draw_tri(ax, tri, beta_blade, title, global_y)
+
         self._apply_layout()
         self.main_canvas.draw()
 
     def _apply_layout(self) -> None:
         apply_layout_to_figure(self.main_fig)
+        self.main_fig.subplots_adjust(top=0.96, bottom=0.08, left=0.06, right=0.98, wspace=0.35)
 
-    def _apply_box_aspect(self, axes) -> None:
-        for ax in axes:
-            if hasattr(ax, "set_box_aspect"):
-                ax.set_box_aspect(1.0)
-            else:
-                ax.set_aspect(1.0, adjustable="box")
+    def _collect_global_ylim(self, triangles_data) -> tuple[float, float]:
+        y_points = []
+        for _, tri, beta_blade in triangles_data:
+            points = self._triangle_points(tri, beta_blade)
+            y_points.extend(points[:, 1].tolist())
+        y_min = min(y_points)
+        y_max = max(y_points)
+        y_span = max(y_max - y_min, 1.0)
+        margin = 0.08 * y_span
+        return y_min - margin, y_max + margin
 
-    def _equalize_ylim_only(self, axes) -> None:
-        y_lims = [ax.get_ylim() for ax in axes]
-        y_min = min(lim[0] for lim in y_lims)
-        y_max = max(lim[1] for lim in y_lims)
-        for ax in axes:
-            ax.set_ylim(y_min, y_max)
+    def _triangle_points(self, tri, beta_blade) -> np.ndarray:
+        o = np.array([0.0, 0.0])
+        u = np.array([0.0, tri.u])
+        apex = np.array([tri.c_m, tri.wu])
+        cm_b = tri.cm_blocked
+        apex_b = np.array([cm_b, tri.wu])
+
+        blade_x = cm_b * 1.1
+        beta_blade_deg = math.degrees(beta_blade)
+        if abs(beta_blade_deg) < 2.0 or abs(beta_blade_deg - 180) < 2.0:
+            blade_y = blade_x * 100 if beta_blade_deg > 0 else -blade_x * 100
+        elif abs(beta_blade_deg - 90) < 2.0:
+            blade_y = 0.0
+        else:
+            tan_beta = math.tan(beta_blade)
+            blade_y = blade_x / tan_beta
+        blade_end = np.array([blade_x, blade_y])
+        return np.vstack([o, u, apex, apex_b, blade_end])
+
+    def _x_limits(self, tri, beta_blade) -> tuple[float, float]:
+        points = self._triangle_points(tri, beta_blade)
+        x_min = points[:, 0].min()
+        x_max = points[:, 0].max()
+        x_span = max(x_max - x_min, 1.0)
+        x_margin = 0.12 * x_span
+        return x_min - x_margin, x_max + x_margin
 
     def _get_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         if self._triangles is not None:
@@ -380,7 +401,7 @@ class VelocityTriangleWidget(QWidget):
                     value_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.data_viewer.setItem(row_idx, col_idx + 1, value_item)
 
-    def _draw_tri(self, ax, tri, beta_blade, title):
+    def _draw_tri(self, ax, tri, beta_blade, title, global_y):
         """Draw triangle on given axes with improved readability and stability."""
         ax.set_facecolor('#1e1e2e')
         ax.set_title(title, color='#cdd6f4', fontsize=10, fontweight='bold')
@@ -409,22 +430,13 @@ class VelocityTriangleWidget(QWidget):
             blade_y = blade_x / tan_beta
         blade_end = np.array([blade_x, blade_y])
 
-        points = np.vstack([o, u, apex, apex_b, blade_end])
-        x_min, y_min = points.min(axis=0)
-        x_max, y_max = points.max(axis=0)
-        x_span = max(x_max - x_min, 1.0)
-        y_span = max(y_max - y_min, 1.0)
-        x_margin = 0.12 * x_span
-        y_margin = 0.12 * y_span
-        x_lim = (x_min - x_margin, x_max + x_margin)
-        y_lim = (y_min - y_margin, y_max + y_margin)
+        x_lim = self._x_limits(tri, beta_blade)
         ax.set_xlim(*x_lim)
-        ax.set_ylim(*y_lim)
+        ax.set_ylim(*global_y)
         
         # u baseline
         ax.annotate('', xy=u, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_U, lw=1.5))
-        ax.text(0, tri.u / 2, 'u', fontsize=10, color=self.COLOR_U, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+        ax.text(0, tri.u / 2, 'u', fontsize=10, color=self.COLOR_U, ha='center', va='center')
 
         # w (flow) - green solid
         ax.annotate('', xy=apex, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.3))
@@ -442,16 +454,14 @@ class VelocityTriangleWidget(QWidget):
 
         # Labels on vectors
         w_mid = apex / 2
-        ax.text(w_mid[0], w_mid[1], 'w', fontsize=10, color=self.COLOR_W, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+        ax.text(w_mid[0], w_mid[1], 'w', fontsize=10, color=self.COLOR_W, ha='center', va='center')
 
         c_mid = (u + apex) / 2
-        ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center',
-               bbox=dict(boxstyle='round,pad=0.15', facecolor='#1e1e2e', edgecolor='none', alpha=0.9))
+        ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center')
         
         # Component spans (wu and cu)
         x_span = x_lim[1] - x_lim[0]
-        y_span = y_lim[1] - y_lim[0]
+        y_span = global_y[1] - global_y[0]
         span_x = x_lim[0] + 0.06 * x_span
         span_x_cu = x_lim[0] + 0.10 * x_span
         label_x = self._clamp_value(span_x + 0.03 * x_span, x_lim[0] + 0.02 * x_span, x_lim[1] - 0.02 * x_span)
@@ -461,18 +471,16 @@ class VelocityTriangleWidget(QWidget):
         if abs(tri.wu) > 0.1:
             ax.annotate('', xy=(span_x, tri.wu), xytext=(span_x, 0),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            label_y = self._clamp_value(tri.wu / 2, y_lim[0] + 0.05 * y_span, y_lim[1] - 0.05 * y_span)
-            ax.text(label_x, label_y, 'wu', fontsize=9, color=self.COLOR_W, ha='center',
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
+            label_y = self._clamp_value(tri.wu / 2, global_y[0] + 0.05 * y_span, global_y[1] - 0.05 * y_span)
+            ax.text(label_x, label_y, 'wu', fontsize=9, color=self.COLOR_W, ha='center')
 
         # cu span: from wu to u
         cu_val = tri.cu  # Use tri.cu directly for accuracy
         if abs(cu_val) > 0.1:
             ax.annotate('', xy=(span_x_cu, tri.u), xytext=(span_x_cu, tri.wu),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
-            label_y = self._clamp_value((tri.wu + tri.u) / 2, y_lim[0] + 0.05 * y_span, y_lim[1] - 0.05 * y_span)
-            ax.text(label_x_cu, label_y, 'cu', fontsize=9, color=self.COLOR_C, ha='center',
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='#1e1e2e', edgecolor='none', alpha=0.85))
+            label_y = self._clamp_value((tri.wu + tri.u) / 2, global_y[0] + 0.05 * y_span, global_y[1] - 0.05 * y_span)
+            ax.text(label_x_cu, label_y, 'cu', fontsize=9, color=self.COLOR_C, ha='center')
 
         # Angle arcs between u and c / u and w
         arc_r = 0.15 * min(x_span, y_span)
@@ -484,7 +492,7 @@ class VelocityTriangleWidget(QWidget):
         
         # Baseline
         ax.axhline(0, color='#45475a', lw=0.3, alpha=0.5)
-        ax.set_aspect('equal', adjustable='box')
+        ax.set_aspect('auto')
         ax.set_xlabel("c_m", color='#a6adc8', fontsize=9)
         ax.set_ylabel("u", color='#a6adc8', fontsize=9)
 

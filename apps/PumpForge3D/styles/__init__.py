@@ -6,6 +6,7 @@ from .app_style import (
     apply_numeric_spinbox_style,
     apply_combobox_style,
     apply_groupbox_style,
+    apply_splitter_style,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "apply_numeric_spinbox_style",
     "apply_combobox_style",
     "apply_groupbox_style",
+    "apply_splitter_style",
 ]

@@ -78,6 +78,12 @@ GROUPBOX_STYLE = """
     }
 """
 
+SPLITTER_STYLE = """
+    QSplitter::handle {
+        background-color: #313244;
+    }
+"""
+
 
 def apply_section_header_style(button: QPushButton) -> None:
     button.setStyleSheet(GROUP_HEADER_STYLE)
@@ -107,3 +113,7 @@ def apply_combobox_style(combo: QComboBox) -> None:
 
 def apply_groupbox_style(groupbox: QGroupBox) -> None:
     groupbox.setStyleSheet(GROUPBOX_STYLE)
+
+
+def apply_splitter_style(splitter) -> None:
+    splitter.setStyleSheet(SPLITTER_STYLE)

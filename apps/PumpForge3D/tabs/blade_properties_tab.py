@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
-from ..styles import apply_section_header_style
+from ..styles import apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -124,6 +124,9 @@ class BladePropertiesTab(QWidget):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setHandleWidth(3)
         self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing to 0
+        self.main_splitter.setCollapsible(0, False)
+        self.main_splitter.splitterMoved.connect(self._clamp_splitter_sizes)
+        apply_splitter_style(self.main_splitter)
 
         # === LEFT PANEL: Inputs (compact, collapsible) ===
         left_panel = self._create_left_panel()
@@ -150,8 +153,8 @@ class BladePropertiesTab(QWidget):
         """Create left input panel with collapsible groups."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(240)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setMinimumWidth(320)
+        panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -279,7 +282,7 @@ class BladePropertiesTab(QWidget):
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
         panel.setMinimumWidth(280)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #181825;
@@ -310,6 +313,7 @@ class BladePropertiesTab(QWidget):
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
         splitter.setChildrenCollapsible(False)
+        apply_splitter_style(splitter)
 
         # === Inducer Info Table (top) ===
         info_widget = QWidget()
@@ -349,6 +353,23 @@ class BladePropertiesTab(QWidget):
         self.blade_inputs_widget.mockSlipChanged.connect(self._on_mock_slip_changed)
         self.triangle_widget.inputsChanged.connect(self._on_triangle_inputs_changed)
         self.params_window.parametersChanged.connect(self._on_params_changed)
+
+    def _clamp_splitter_sizes(self):
+        sizes = self.main_splitter.sizes()
+        if not sizes:
+            return
+        min_left = self.main_splitter.widget(0).minimumWidth()
+        if sizes[0] < min_left:
+            total = sum(sizes)
+            remaining = max(total - min_left, 0)
+            tail = sizes[1] + sizes[2]
+            if tail > 0:
+                center = int(remaining * (sizes[1] / tail))
+                right = remaining - center
+            else:
+                center = remaining
+                right = 0
+            self.main_splitter.setSizes([min_left, center, right])
 
     def _get_state_triangles(self) -> tuple[InletTriangle, InletTriangle, OutletTriangle, OutletTriangle]:
         inducer = self._state.get_inducer()
