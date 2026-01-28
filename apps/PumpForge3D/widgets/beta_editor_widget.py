@@ -35,9 +35,15 @@ class BetaDistributionEditorWidget(QWidget):
     
     Signals:
         modelChanged: Emitted when model is modified
+        betaCellEdited: Emitted when a beta table cell is edited (row, col, value)
+        spanCountChanged: Emitted when span count changes
+        linearModeChanged: Emitted when linear inlet/outlet toggles change
     """
     
     modelChanged = Signal(object)
+    betaCellEdited = Signal(int, int, float)
+    spanCountChanged = Signal(int)
+    linearModeChanged = Signal(bool, bool)
     
     PICK_TOLERANCE = 10
     
@@ -72,7 +78,7 @@ class BetaDistributionEditorWidget(QWidget):
         span_row = QHBoxLayout()
         span_row.addWidget(QLabel("Spans:"))
         self.span_spin = QSpinBox()
-        self.span_spin.setRange(2, 20)
+        self.span_spin.setRange(3, 25)
         self.span_spin.setValue(self._model.span_count)
         span_row.addWidget(self.span_spin)
         span_row.addStretch()
@@ -391,6 +397,7 @@ class BetaDistributionEditorWidget(QWidget):
         self._model.apply_linear_mode()
         self._load_from_model()
         self.modelChanged.emit(self._model)
+        self.spanCountChanged.emit(value)
     
     def _on_linear_inlet_toggled(self, checked: bool):
         """Handle linear inlet mode toggle."""
@@ -401,6 +408,7 @@ class BetaDistributionEditorWidget(QWidget):
             self._model.apply_linear_mode()
         self._load_from_model()
         self.modelChanged.emit(self._model)
+        self.linearModeChanged.emit(self._model.linear_inlet, self._model.linear_outlet)
     
     def _on_linear_outlet_toggled(self, checked: bool):
         """Handle linear outlet mode toggle."""
@@ -411,6 +419,7 @@ class BetaDistributionEditorWidget(QWidget):
             self._model.apply_linear_mode()
         self._load_from_model()
         self.modelChanged.emit(self._model)
+        self.linearModeChanged.emit(self._model.linear_inlet, self._model.linear_outlet)
     
     def _on_table_cell_changed(self, row: int, col: int):
         """Handle table cell edit."""
@@ -440,6 +449,7 @@ class BetaDistributionEditorWidget(QWidget):
         
         self._load_from_model()
         self.modelChanged.emit(self._model)
+        self.betaCellEdited.emit(row, col, value)
     
     def _on_angle_lock_changed(self, which: str, j: int, locked: bool):
         """Handle angle lock toggle."""
@@ -614,6 +624,29 @@ class BetaDistributionEditorWidget(QWidget):
         self.span_spin.setValue(model.span_count)
         self.span_spin.blockSignals(False)
         self._load_from_model()
+
+    def set_beta_distribution(
+        self,
+        *,
+        span_count: int,
+        beta_in: List[float],
+        beta_out: List[float],
+        linear_inlet: bool,
+        linear_outlet: bool,
+    ) -> None:
+        """Update model values without re-triggering edits."""
+        self._updating = True
+        self._model.span_count = span_count
+        self._model.span_fractions = np.linspace(0, 1, span_count)
+        self._model.beta_in = np.array(beta_in, dtype=float)
+        self._model.beta_out = np.array(beta_out, dtype=float)
+        self._model.linear_inlet = linear_inlet
+        self._model.linear_outlet = linear_outlet
+        self.span_spin.blockSignals(True)
+        self.span_spin.setValue(span_count)
+        self.span_spin.blockSignals(False)
+        self._load_from_model()
+        self._updating = False
     
     def get_model(self) -> BetaDistributionModel:
         """Get the current model."""
