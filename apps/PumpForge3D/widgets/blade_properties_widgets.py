@@ -317,6 +317,7 @@ class BladeInputsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(16)
         layout.setVerticalSpacing(8)
+        self.setMinimumWidth(340)
 
         # Blade count z (integer)
         blade_count_spin = StyledSpinBox()
