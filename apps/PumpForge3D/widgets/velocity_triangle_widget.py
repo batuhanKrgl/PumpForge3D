@@ -89,13 +89,13 @@ class VelocityTriangleWidget(QWidget):
         """)
 
         self.legend_widget = self._build_legend_widget()
-        top_bar = QWidget()
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(8)
-        top_layout.addWidget(self.toolbar)
-        top_layout.addStretch()
-        top_layout.addWidget(self.legend_widget)
+        self.legend_row = QWidget()
+        legend_layout = QHBoxLayout(self.legend_row)
+        legend_layout.setContentsMargins(0, 0, 0, 0)
+        legend_layout.setSpacing(8)
+        legend_layout.addStretch()
+        legend_layout.addWidget(self.legend_widget)
+        legend_layout.addStretch()
 
         # Data viewer table
         self.data_viewer = QTableWidget()
@@ -124,7 +124,8 @@ class VelocityTriangleWidget(QWidget):
             }
         """)
 
-        main_layout.addWidget(top_bar)
+        main_layout.addWidget(self.toolbar)
+        main_layout.addWidget(self.legend_row)
         main_layout.addWidget(self.main_canvas, 1)
         main_layout.addWidget(self.data_viewer)
 
@@ -137,12 +138,12 @@ class VelocityTriangleWidget(QWidget):
 
     def _build_legend_widget(self) -> QWidget:
         legend = QWidget()
-        legend.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        legend.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         legend.setFixedHeight(28)
         legend_layout = QHBoxLayout(legend)
         legend_layout.setContentsMargins(8, 2, 8, 2)
         legend_layout.setSpacing(10)
-        legend_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        legend_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         legend_items = [
             ("Blue: c (absolute)", self.COLOR_C, 2, Qt.PenStyle.SolidLine),
@@ -470,8 +471,7 @@ class VelocityTriangleWidget(QWidget):
         
         # u baseline
         ax.annotate('', xy=u, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_U, lw=1.5))
-        bbox_style = dict(boxstyle="round,pad=0.2", facecolor="#1e1e2e", edgecolor="none", alpha=0.85)
-        ax.text(0, tri.u / 2, 'u', fontsize=10, color=self.COLOR_U, ha='center', va='center', bbox=bbox_style)
+        ax.text(0, tri.u / 2, 'u', fontsize=10, color=self.COLOR_U, ha='center', va='center')
 
         # w (flow) - green solid
         ax.annotate('', xy=apex, xytext=o, arrowprops=dict(arrowstyle='->', color=self.COLOR_W, lw=1.3))
@@ -489,10 +489,10 @@ class VelocityTriangleWidget(QWidget):
 
         # Labels on vectors
         w_mid = apex / 2
-        ax.text(w_mid[0], w_mid[1], 'w', fontsize=10, color=self.COLOR_W, ha='center', va='center', bbox=bbox_style)
+        ax.text(w_mid[0], w_mid[1], 'w', fontsize=10, color=self.COLOR_W, ha='center', va='center')
 
         c_mid = (u + apex) / 2
-        ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center', bbox=bbox_style)
+        ax.text(c_mid[0], c_mid[1], 'c', fontsize=10, color=self.COLOR_C, ha='center', va='center')
         
         # Component spans (wu and cu)
         x_span = global_x[1] - global_x[0]
@@ -505,7 +505,7 @@ class VelocityTriangleWidget(QWidget):
             ax.annotate('', xy=(span_x, tri.wu), xytext=(span_x, 0),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
             label_y = (tri.wu + 0.0) / 2
-            ax.text(span_x, label_y, 'wu', fontsize=9, color=self.COLOR_W, ha='center', bbox=bbox_style)
+            ax.text(span_x, label_y, 'wu', fontsize=9, color=self.COLOR_W, ha='center')
 
         # cu span: from wu to u
         cu_val = tri.cu  # Use tri.cu directly for accuracy
@@ -513,7 +513,7 @@ class VelocityTriangleWidget(QWidget):
             ax.annotate('', xy=(span_x_cu, tri.u), xytext=(span_x_cu, tri.wu),
                         arrowprops=dict(arrowstyle='<->', color='#6c7086', lw=0.9))
             label_y = (tri.wu + tri.u) / 2
-            ax.text(span_x_cu, label_y, 'cu', fontsize=9, color=self.COLOR_C, ha='center', bbox=bbox_style)
+            ax.text(span_x_cu, label_y, 'cu', fontsize=9, color=self.COLOR_C, ha='center')
 
         # Angle arcs between u and c / u and w
         arc_r = 0.15 * min(x_span, y_span)

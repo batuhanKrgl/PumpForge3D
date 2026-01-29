@@ -259,6 +259,8 @@ class BladeThicknessMatrixWidget(QWidget):
         self.error_label.setVisible(False)
         layout.addWidget(self.error_label)
 
+        self._update_table_height()
+
     def _connect_signals(self):
         """Connect table itemChanged signal."""
         self.table.itemChanged.connect(self._on_item_changed)
@@ -276,6 +278,21 @@ class BladeThicknessMatrixWidget(QWidget):
                         self.table.blockSignals(False)
                         return True
         return super().eventFilter(watched, event)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().showEvent(event)
+        self._update_table_height()
+
+    def _update_table_height(self) -> None:
+        header_height = self.table.horizontalHeader().sizeHint().height()
+        rows_height = sum(
+            max(self.table.rowHeight(row), self.table.sizeHintForRow(row))
+            for row in range(self.table.rowCount())
+        )
+        frame = self.table.frameWidth() * 2
+        total_height = header_height + rows_height + frame
+        self.table.setMaximumHeight(total_height)
+        self.table.setMinimumHeight(total_height)
 
     def _on_item_changed(self, item):
         """Handle cell edit and emit signal."""

@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, Signal, QSettings, QTimer
 import logging
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
-from ..styles import apply_section_header_style, apply_splitter_style
+from ..styles import apply_form_label_style, apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -169,8 +169,8 @@ class BladePropertiesTab(QWidget):
         QWidget.setTabOrder(self.blade_inputs_widget.slip_mode_combo, self.blade_inputs_widget.mock_slip_hub_spin.spinbox)
         QWidget.setTabOrder(self.blade_inputs_widget.mock_slip_hub_spin.spinbox, self.blade_inputs_widget.mock_slip_tip_spin.spinbox)
         QWidget.setTabOrder(self.blade_inputs_widget.mock_slip_tip_spin.spinbox, self.beta_calc_button)
-        QWidget.setTabOrder(self.beta_calc_button, self.beta_widget.span_spin)
-        QWidget.setTabOrder(self.beta_widget.span_spin, self.beta_widget.table)
+        QWidget.setTabOrder(self.beta_calc_button, self.beta_widget.span_spin.spinbox)
+        QWidget.setTabOrder(self.beta_widget.span_spin.spinbox, self.beta_widget.table)
 
     def _create_left_panel(self) -> QWidget:
         """Create left input panel with collapsible groups."""
@@ -277,14 +277,7 @@ class BladePropertiesTab(QWidget):
         header_layout.setSpacing(6)
 
         title = QLabel("◈ Velocity Triangles")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-            }
-        """)
+        apply_form_label_style(title)
         header_layout.addWidget(title)
 
         header_layout.addStretch()
@@ -315,13 +308,7 @@ class BladePropertiesTab(QWidget):
 
         # Mini info label (optional, shows current settings)
         self.triangle_info_label = QLabel("1×4 Subplots | Hub/Shroud Leading/Trailing")
-        self.triangle_info_label.setStyleSheet("""
-            QLabel {
-                color: #a6adc8;
-                font-size: 9px;
-                padding: 4px;
-            }
-        """)
+        self.triangle_info_label.setStyleSheet("color: #a6adc8; font-size: 9px; padding: 2px 4px;")
         header_layout.addWidget(self.triangle_info_label)
 
         panel_layout.addLayout(header_layout)
@@ -355,16 +342,7 @@ class BladePropertiesTab(QWidget):
 
         # Panel title
         title = QLabel("📊 Analysis & Details")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-                background-color: #1e1e2e;
-                border-radius: 3px;
-            }
-        """)
+        apply_form_label_style(title)
         title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(title)
 
