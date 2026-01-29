@@ -21,7 +21,7 @@ from ..app.state.app_state import AppState
 
 
 from ..utils.matplotlib_layout import apply_layout_to_figure
-from ..styles import apply_form_label_style
+from ..styles import apply_plain_label_style
 
 
 class VelocityTriangleWidget(QWidget):
@@ -90,6 +90,7 @@ class VelocityTriangleWidget(QWidget):
 
         self.legend_widget = self._build_legend_widget()
         self.legend_row = QWidget()
+        self.legend_row.setStyleSheet("background: transparent;")
         legend_layout = QHBoxLayout(self.legend_row)
         legend_layout.setContentsMargins(0, 0, 0, 0)
         legend_layout.setSpacing(8)
@@ -138,6 +139,7 @@ class VelocityTriangleWidget(QWidget):
 
     def _build_legend_widget(self) -> QWidget:
         legend = QWidget()
+        legend.setStyleSheet("background: transparent; border: none;")
         legend.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         legend.setFixedHeight(28)
         legend_layout = QHBoxLayout(legend)
@@ -162,6 +164,7 @@ class VelocityTriangleWidget(QWidget):
 
     def _legend_item(self, text: str, color: str, width: int, style: Qt.PenStyle) -> QWidget:
         item = QWidget()
+        item.setStyleSheet("background: transparent; border: none;")
         item_layout = QHBoxLayout(item)
         item_layout.setContentsMargins(0, 0, 0, 0)
         item_layout.setSpacing(6)
@@ -169,7 +172,7 @@ class VelocityTriangleWidget(QWidget):
         sample = QLabel()
         sample.setPixmap(self._line_pixmap(color, width, style))
         label = QLabel(text)
-        apply_form_label_style(label)
+        apply_plain_label_style(label)
 
         item_layout.addWidget(sample)
         item_layout.addWidget(label)

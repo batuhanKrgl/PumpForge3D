@@ -28,6 +28,17 @@ FORM_LABEL_STYLE = """
     }
 """
 
+PLAIN_LABEL_STYLE = """
+    QLabel[role="plain"] {
+        color: #cdd6f4;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 4px;
+        background: transparent;
+        border: none;
+    }
+"""
+
 NUMERIC_SPINBOX_STYLE = """
     QAbstractSpinBox {
         background-color: #313244;
@@ -101,6 +112,12 @@ def apply_form_label_style(label: QLabel) -> None:
         }
         """
     )
+
+
+def apply_plain_label_style(label: QLabel) -> None:
+    label.setProperty("role", "plain")
+    label.setAutoFillBackground(False)
+    label.setStyleSheet(PLAIN_LABEL_STYLE)
 
 
 def apply_numeric_spinbox_style(spinbox: QAbstractSpinBox) -> None:

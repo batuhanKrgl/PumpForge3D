@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, Signal, QSettings, QTimer
 import logging
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
-from ..styles import apply_form_label_style, apply_section_header_style, apply_splitter_style
+from ..styles import apply_form_label_style, apply_plain_label_style, apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -277,7 +277,7 @@ class BladePropertiesTab(QWidget):
         header_layout.setSpacing(6)
 
         title = QLabel("◈ Velocity Triangles")
-        apply_form_label_style(title)
+        apply_plain_label_style(title)
         header_layout.addWidget(title)
 
         header_layout.addStretch()
@@ -308,7 +308,8 @@ class BladePropertiesTab(QWidget):
 
         # Mini info label (optional, shows current settings)
         self.triangle_info_label = QLabel("1×4 Subplots | Hub/Shroud Leading/Trailing")
-        self.triangle_info_label.setStyleSheet("color: #a6adc8; font-size: 9px; padding: 2px 4px;")
+        apply_plain_label_style(self.triangle_info_label)
+        self.triangle_info_label.setStyleSheet("color: #a6adc8; font-size: 9px; padding: 2px 4px; background: transparent; border: none;")
         header_layout.addWidget(self.triangle_info_label)
 
         panel_layout.addLayout(header_layout)
@@ -342,7 +343,7 @@ class BladePropertiesTab(QWidget):
 
         # Panel title
         title = QLabel("📊 Analysis & Details")
-        apply_form_label_style(title)
+        apply_plain_label_style(title)
         title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(title)
 

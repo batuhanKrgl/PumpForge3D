@@ -42,3 +42,18 @@ def test_velocity_triangle_legend_not_overlapping_toolbar(qtbot):
 
     assert not toolbar_rect.intersects(legend_rect)
     assert legend_rect.top() >= toolbar_rect.bottom()
+
+
+def test_blade_properties_plain_labels(qtbot):
+    tab = BladePropertiesTab()
+    qtbot.addWidget(tab)
+    tab.show()
+
+    assert tab.triangle_info_label.property("role") == "plain"
+    assert "background-color" not in tab.triangle_info_label.styleSheet()
+
+    legend_labels = tab.triangle_widget.legend_widget.findChildren(type(tab.triangle_info_label))
+    assert legend_labels, "Legend labels should exist."
+    for label in legend_labels:
+        assert label.property("role") == "plain"
+        assert "background-color" not in label.styleSheet()
