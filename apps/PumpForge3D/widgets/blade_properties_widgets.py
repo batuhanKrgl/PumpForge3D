@@ -24,6 +24,7 @@ from ..styles import (
     apply_combobox_style,
     apply_form_label_style,
     apply_groupbox_style,
+    apply_input_table_style,
     apply_numeric_spinbox_style,
 )
 from ..utils.editor_commit_filter import attach_commit_filter
@@ -204,34 +205,7 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         # Style with hover effects and better fonts
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                gridline-color: #45475a;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                font-size: 11px;
-            }
-            QTableWidget::item {
-                padding: 6px;
-                text-align: center;
-            }
-            QTableWidget::item:hover {
-                background-color: #313244;
-            }
-            QTableWidget::item:selected {
-                background-color: #45475a;
-            }
-            QHeaderView::section {
-                background-color: #313244;
-                color: #cdd6f4;
-                padding: 6px;
-                border: 1px solid #45475a;
-                font-weight: bold;
-                font-size: 10px;
-            }
-        """)
+        apply_input_table_style(self.table)
 
         # Populate with editable text items
         for row in range(2):

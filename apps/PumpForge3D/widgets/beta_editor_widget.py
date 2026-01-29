@@ -18,7 +18,7 @@ from PySide6.QtGui import QColor
 import logging
 
 from pumpforge3d_core.geometry.beta_distribution import BetaDistributionModel
-from ..styles import apply_form_label_style
+from ..styles import apply_form_label_style, apply_input_table_style
 from ..utils.editor_commit_filter import attach_commit_filter
 from ..widgets.blade_properties_widgets import StyledSpinBox
 
@@ -108,6 +108,7 @@ class BetaDistributionEditorWidget(QWidget):
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setAccessibleName("Beta distribution table")
         self.table.setAccessibleDescription("Spanwise inlet and outlet beta angles in degrees.")
+        apply_input_table_style(self.table)
         left_layout.addWidget(self.table, 1)
 
         self.error_label = QLabel("")
