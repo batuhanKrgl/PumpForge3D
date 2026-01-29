@@ -15,8 +15,10 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QComboBox, QFrame, QTextEdit, QTreeWidget, QTreeWidgetItem,
     QPushButton, QSizePolicy, QToolButton, QAbstractSpinBox, QGridLayout
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QEvent
 from PySide6.QtGui import QFont
+
+import logging
 
 from ..styles import (
     apply_combobox_style,
@@ -24,10 +26,13 @@ from ..styles import (
     apply_groupbox_style,
     apply_numeric_spinbox_style,
 )
+from ..utils.editor_commit_filter import attach_commit_filter
 
 from pumpforge3d_core.analysis.blade_properties import (
     BladeThicknessMatrix, SlipCalculationResult, calculate_slip
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_subscript_label(base: str, subscript: str) -> QLabel:
@@ -60,6 +65,8 @@ class StyledSpinBox(QWidget):
         self.minus_btn.setText("−")
         self.minus_btn.setFixedSize(26, 28)
         self.minus_btn.setAutoRepeat(True)
+        self.minus_btn.setAccessibleName("Decrease value")
+        self.minus_btn.setAccessibleDescription("Decrease the value.")
         self.minus_btn.setStyleSheet("""
             QToolButton {
                 background-color: #313244;
@@ -88,6 +95,8 @@ class StyledSpinBox(QWidget):
         self.plus_btn.setText("+")
         self.plus_btn.setFixedSize(26, 28)
         self.plus_btn.setAutoRepeat(True)
+        self.plus_btn.setAccessibleName("Increase value")
+        self.plus_btn.setAccessibleDescription("Increase the value.")
         self.plus_btn.setStyleSheet("""
             QToolButton {
                 background-color: #313244;
@@ -121,6 +130,7 @@ class StyledSpinBox(QWidget):
 
     def setValue(self, val: float):
         self.spinbox.setValue(val)
+        self._set_last_valid_value(val)
 
     def setRange(self, min_val: float, max_val: float):
         self.spinbox.setRange(min_val, max_val)
@@ -143,6 +153,14 @@ class StyledSpinBox(QWidget):
     def setButtonsEnabled(self, enabled: bool) -> None:
         self.minus_btn.setEnabled(enabled)
         self.plus_btn.setEnabled(enabled)
+
+    def _set_last_valid_value(self, value: float) -> None:
+        self.spinbox.setProperty("last_valid_value", value)
+
+    def revert_to_last_valid(self) -> None:
+        last_valid = self.spinbox.property("last_valid_value")
+        if last_valid is not None:
+            self.spinbox.setValue(float(last_valid))
 
 
 class BladeThicknessMatrixWidget(QWidget):
@@ -169,6 +187,8 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table = QTableWidget(2, 2)
         self.table.setHorizontalHeaderLabels(['Inlet', 'Outlet'])
         self.table.setVerticalHeaderLabels(['Hub', 'Tip'])
+        self.table.setAccessibleName("Blade thickness table")
+        self.table.setAccessibleDescription("Blade thickness inputs for hub and tip at inlet and outlet.")
 
         # Disable scrollbars
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -226,11 +246,36 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.item(1, 0).setText(f"{self._thickness.tip_inlet:.2f}")
         self.table.item(1, 1).setText(f"{self._thickness.tip_outlet:.2f}")
 
+        for row in range(2):
+            for col in range(2):
+                item = self.table.item(row, col)
+                item.setData(Qt.ItemDataRole.UserRole, float(item.text()))
+
         layout.addWidget(self.table)
+
+        self.error_label = QLabel("")
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet("color: #f38ba8; font-size: 10px;")
+        self.error_label.setVisible(False)
+        layout.addWidget(self.error_label)
 
     def _connect_signals(self):
         """Connect table itemChanged signal."""
         self.table.itemChanged.connect(self._on_item_changed)
+        self.table.installEventFilter(self)
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt naming
+        if watched is self.table and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                current = self.table.currentItem()
+                if current is not None:
+                    last_valid = current.data(Qt.ItemDataRole.UserRole)
+                    if last_valid is not None:
+                        self.table.blockSignals(True)
+                        current.setText(f"{float(last_valid):.2f}")
+                        self.table.blockSignals(False)
+                        return True
+        return super().eventFilter(watched, event)
 
     def _on_item_changed(self, item):
         """Handle cell edit and emit signal."""
@@ -255,7 +300,10 @@ class BladeThicknessMatrixWidget(QWidget):
             # Update display with formatted value
             self.table.blockSignals(True)
             item.setText(f"{value:.2f}")
+            item.setData(Qt.ItemDataRole.UserRole, value)
             self.table.blockSignals(False)
+
+            self._clear_error_state()
 
             # Emit change signal
             self.thicknessChanged.emit(self._thickness)
@@ -263,15 +311,29 @@ class BladeThicknessMatrixWidget(QWidget):
         except ValueError:
             # Invalid input, revert to previous value
             self.table.blockSignals(True)
-            if item.row() == 0 and item.column() == 0:
-                item.setText(f"{self._thickness.hub_inlet:.2f}")
-            elif item.row() == 0 and item.column() == 1:
-                item.setText(f"{self._thickness.hub_outlet:.2f}")
-            elif item.row() == 1 and item.column() == 0:
-                item.setText(f"{self._thickness.tip_inlet:.2f}")
-            elif item.row() == 1 and item.column() == 1:
-                item.setText(f"{self._thickness.tip_outlet:.2f}")
+            last_valid = item.data(Qt.ItemDataRole.UserRole)
+            if last_valid is None:
+                last_valid = self._thickness.hub_inlet
+            item.setText(f"{float(last_valid):.2f}")
             self.table.blockSignals(False)
+            self._set_error_state("Blade thickness must be a number between 0.1 and 100.0 mm.")
+            logger.warning("Invalid blade thickness input at row %s col %s.", item.row(), item.column())
+
+    def _set_error_state(self, message: str) -> None:
+        self.table.setProperty("error", True)
+        self.table.setToolTip(message)
+        self.table.style().unpolish(self.table)
+        self.table.style().polish(self.table)
+        self.error_label.setText(f"⚠ {message}")
+        self.error_label.setVisible(True)
+
+    def _clear_error_state(self) -> None:
+        self.table.setProperty("error", False)
+        self.table.setToolTip("")
+        self.table.style().unpolish(self.table)
+        self.table.style().polish(self.table)
+        self.error_label.setText("")
+        self.error_label.setVisible(False)
 
     def get_thickness(self) -> BladeThicknessMatrix:
         """Get current thickness matrix."""
@@ -287,7 +349,14 @@ class BladeThicknessMatrixWidget(QWidget):
         self.table.item(1, 0).setText(f"{thickness.tip_inlet:.2f}")
         self.table.item(1, 1).setText(f"{thickness.tip_outlet:.2f}")
 
+        for row in range(2):
+            for col in range(2):
+                item = self.table.item(row, col)
+                if item:
+                    item.setData(Qt.ItemDataRole.UserRole, float(item.text()))
+
         self.table.blockSignals(False)
+        self._clear_error_state()
 
 
 class BladeInputsWidget(QWidget):
@@ -334,6 +403,7 @@ class BladeInputsWidget(QWidget):
         top_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         blade_count_label = QLabel("z:")
         apply_form_label_style(blade_count_label)
+        blade_count_label.setBuddy(blade_count_spin.spinbox)
         top_form.addRow(blade_count_label, blade_count_spin)
 
         # Incidence i (degrees) - with subscript
@@ -375,14 +445,17 @@ class BladeInputsWidget(QWidget):
         self.slip_mode_combo = slip_mode_combo
         slip_label = QLabel("Slip:")
         apply_form_label_style(slip_label)
+        slip_label.setBuddy(slip_mode_combo)
         top_form.addRow(slip_label, slip_mode_combo)
 
         incidence_hub_label = create_subscript_label("i", "1,hub")
         apply_form_label_style(incidence_hub_label)
+        incidence_hub_label.setBuddy(incidence_hub_spin.spinbox)
         hub_form.addRow(incidence_hub_label, incidence_hub_spin)
 
         incidence_tip_label = create_subscript_label("i", "1,tip")
         apply_form_label_style(incidence_tip_label)
+        incidence_tip_label.setBuddy(incidence_tip_spin.spinbox)
         tip_form.addRow(incidence_tip_label, incidence_tip_spin)
 
         # Mock slip δ (degrees, conditional)
@@ -397,6 +470,7 @@ class BladeInputsWidget(QWidget):
         self.mock_slip_hub_label = QLabel("δ hub:")
         apply_form_label_style(self.mock_slip_hub_label)
         self.mock_slip_hub_label.setToolTip("Slip angle (hub)")
+        self.mock_slip_hub_label.setBuddy(mock_slip_hub_spin.spinbox)
         hub_form.addRow(self.mock_slip_hub_label, mock_slip_hub_spin)
 
         mock_slip_tip_spin = StyledSpinBox()
@@ -410,6 +484,7 @@ class BladeInputsWidget(QWidget):
         self.mock_slip_tip_label = QLabel("δ tip:")
         apply_form_label_style(self.mock_slip_tip_label)
         self.mock_slip_tip_label.setToolTip("Slip angle (tip)")
+        self.mock_slip_tip_label.setBuddy(mock_slip_tip_spin.spinbox)
         tip_form.addRow(self.mock_slip_tip_label, mock_slip_tip_spin)
 
         layout.addLayout(top_form, 0, 0, 1, 2)
@@ -428,18 +503,26 @@ class BladeInputsWidget(QWidget):
 
         self._update_mock_slip_visibility()
 
+        blade_count_spin.spinbox.setAccessibleName("Blade count")
+        blade_count_spin.spinbox.setAccessibleDescription("Number of blades.")
+        incidence_hub_spin.spinbox.setAccessibleName("Hub incidence")
+        incidence_hub_spin.spinbox.setAccessibleDescription("Hub incidence angle in degrees.")
+        incidence_tip_spin.spinbox.setAccessibleName("Tip incidence")
+        incidence_tip_spin.spinbox.setAccessibleDescription("Tip incidence angle in degrees.")
+        slip_mode_combo.setAccessibleName("Slip mode")
+        slip_mode_combo.setAccessibleDescription("Select the slip calculation mode.")
+        mock_slip_hub_spin.spinbox.setAccessibleName("Hub slip angle")
+        mock_slip_hub_spin.spinbox.setAccessibleDescription("Hub slip angle in degrees.")
+        mock_slip_tip_spin.spinbox.setAccessibleName("Tip slip angle")
+        mock_slip_tip_spin.spinbox.setAccessibleDescription("Tip slip angle in degrees.")
+
     def _connect_signals(self):
-        self.blade_count_spin.valueChanged.connect(self._on_blade_count_changed)
-        self.incidence_hub_spin.valueChanged.connect(self._on_incidence_changed)
-        self.incidence_tip_spin.valueChanged.connect(self._on_incidence_changed)
+        self.blade_count_spin.editingFinished.connect(self._on_blade_count_changed)
+        self.incidence_hub_spin.editingFinished.connect(self._on_incidence_changed)
+        self.incidence_tip_spin.editingFinished.connect(self._on_incidence_changed)
         self.slip_mode_combo.currentTextChanged.connect(self._on_slip_mode_changed)
-        self.mock_slip_hub_spin.valueChanged.connect(self._on_mock_slip_changed)
-        self.mock_slip_tip_spin.valueChanged.connect(self._on_mock_slip_changed)
-        self.blade_count_spin.valueChanged.connect(self.inputsCommitted.emit)
-        self.incidence_hub_spin.valueChanged.connect(self.inputsCommitted.emit)
-        self.incidence_tip_spin.valueChanged.connect(self.inputsCommitted.emit)
-        self.mock_slip_hub_spin.valueChanged.connect(self.inputsCommitted.emit)
-        self.mock_slip_tip_spin.valueChanged.connect(self.inputsCommitted.emit)
+        self.mock_slip_hub_spin.editingFinished.connect(self._on_mock_slip_changed)
+        self.mock_slip_tip_spin.editingFinished.connect(self._on_mock_slip_changed)
         self.blade_count_spin.editingFinished.connect(self.inputsCommitted.emit)
         self.incidence_hub_spin.editingFinished.connect(self.inputsCommitted.emit)
         self.incidence_tip_spin.editingFinished.connect(self.inputsCommitted.emit)
@@ -447,11 +530,20 @@ class BladeInputsWidget(QWidget):
         self.mock_slip_tip_spin.editingFinished.connect(self.inputsCommitted.emit)
         self.slip_mode_combo.currentTextChanged.connect(self.inputsCommitted.emit)
 
-    def _on_blade_count_changed(self, value):
-        self._blade_count = int(value)
+        for spin in [
+            self.blade_count_spin,
+            self.incidence_hub_spin,
+            self.incidence_tip_spin,
+            self.mock_slip_hub_spin,
+            self.mock_slip_tip_spin,
+        ]:
+            attach_commit_filter(spin.spinbox)
+
+    def _on_blade_count_changed(self, _value=None):
+        self._blade_count = int(self.blade_count_spin.value())
         self.bladeCountChanged.emit(self._blade_count)
 
-    def _on_incidence_changed(self, value):
+    def _on_incidence_changed(self, _value=None):
         self._incidence_hub = self.incidence_hub_spin.value()
         self._incidence_tip = self.incidence_tip_spin.value()
         self.incidenceChanged.emit(self._incidence_hub, self._incidence_tip)
@@ -461,7 +553,7 @@ class BladeInputsWidget(QWidget):
         self._update_mock_slip_visibility()
         self.slipModeChanged.emit(mode)
 
-    def _on_mock_slip_changed(self, value):
+    def _on_mock_slip_changed(self, _value=None):
         self._mock_slip_hub = self.mock_slip_hub_spin.value()
         self._mock_slip_tip = self.mock_slip_tip_spin.value()
         self.mockSlipChanged.emit(self._mock_slip_hub, self._mock_slip_tip)

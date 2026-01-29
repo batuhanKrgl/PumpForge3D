@@ -14,6 +14,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from typing import Tuple, Optional
 
+import logging
+
+from ..utils.editor_commit_filter import attach_commit_filter
+
+logger = logging.getLogger(__name__)
+
 
 class NumericInputDialog(QDialog):
     """
@@ -144,7 +150,8 @@ class NumericInputDialog(QDialog):
 
         for field in self._fields or []:
             key = field["key"]
-            label = field.get("label", key)
+            label_text = field.get("label", key)
+            label = QLabel(label_text)
             spin = QDoubleSpinBox()
             spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             spin.setRange(field.get("min", -1e9), field.get("max", 1e9))
@@ -155,8 +162,12 @@ class NumericInputDialog(QDialog):
                 spin.setSingleStep(field["step"])
             spin.setValue(field.get("value", 0.0))
             spin.setFixedWidth(field.get("width", 120))
+            spin.setAccessibleName(label_text)
+            spin.setAccessibleDescription(f"{label_text} input.")
             self._field_spins[key] = spin
+            label.setBuddy(spin)
             form.addRow(label, spin)
+            attach_commit_filter(spin)
 
         layout.addLayout(form)
 
@@ -220,7 +231,12 @@ class NumericInputDialog(QDialog):
         self.z_spin.setSuffix(" mm")
         self.z_spin.setValue(current_z)
         self.z_spin.setFixedWidth(100)
-        form.addRow("Z (axial):", self.z_spin)
+        self.z_spin.setAccessibleName("Z coordinate")
+        self.z_spin.setAccessibleDescription("Axial coordinate in millimeters.")
+        z_label = QLabel("Z (axial):")
+        z_label.setBuddy(self.z_spin)
+        form.addRow(z_label, self.z_spin)
+        attach_commit_filter(self.z_spin)
         
         # R coordinate
         self.r_spin = QDoubleSpinBox()
@@ -230,7 +246,12 @@ class NumericInputDialog(QDialog):
         self.r_spin.setSuffix(" mm")
         self.r_spin.setValue(current_r)
         self.r_spin.setFixedWidth(100)
-        form.addRow("R (radial):", self.r_spin)
+        self.r_spin.setAccessibleName("R coordinate")
+        self.r_spin.setAccessibleDescription("Radial coordinate in millimeters.")
+        r_label = QLabel("R (radial):")
+        r_label.setBuddy(self.r_spin)
+        form.addRow(r_label, self.r_spin)
+        attach_commit_filter(self.r_spin)
         
         layout.addLayout(form)
         
@@ -249,6 +270,8 @@ class NumericInputDialog(QDialog):
             self.angle_lock_check = QCheckBox("Lock tangent angle")
             self.angle_lock_check.setChecked(self._angle_locked)
             self.angle_lock_check.toggled.connect(self._on_angle_lock_toggled)
+            self.angle_lock_check.setAccessibleName("Lock tangent angle")
+            self.angle_lock_check.setAccessibleDescription("Lock the control point tangent angle.")
             layout.addWidget(self.angle_lock_check)
             
             # Angle value form - always visible, editable when locked
@@ -265,7 +288,12 @@ class NumericInputDialog(QDialog):
             self.angle_spin.setReadOnly(not self._angle_locked)
             if not self._angle_locked:
                 self.angle_spin.setStyleSheet("color: #6c7086;")  # Greyed out
-            angle_form.addRow("Angle:", self.angle_spin)
+            self.angle_spin.setAccessibleName("Tangent angle")
+            self.angle_spin.setAccessibleDescription("Locked tangent angle in degrees.")
+            angle_label = QLabel("Angle:")
+            angle_label.setBuddy(self.angle_spin)
+            angle_form.addRow(angle_label, self.angle_spin)
+            attach_commit_filter(self.angle_spin)
             layout.addLayout(angle_form)
             
             hint = QLabel("Locks CP movement to fixed angle from endpoint")
@@ -305,11 +333,13 @@ class NumericInputDialog(QDialog):
         """Apply the new coordinates."""
         if self._fields:
             payload = self.get_field_values()
+            logger.info("Numeric fields applied: %s", payload)
             self.applied.emit(payload)
             self.accept()
             return
         z = self.z_spin.value()
         r = self.r_spin.value()
+        logger.info("Control point coordinates applied: z=%.3f r=%.3f", z, r)
         self.coordinates_accepted.emit(z, r)
         self.applied.emit({"z": z, "r": r})
         self.accept()

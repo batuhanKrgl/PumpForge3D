@@ -91,7 +91,7 @@ class AppState(QObject):
             updated = replace(self._inducer, **kwargs)
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="update")
 
@@ -100,7 +100,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="geometry")
 
@@ -109,7 +109,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="blade_properties")
 
@@ -181,7 +181,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         inlet_hub, outlet_hub = updated.build_triangles_pair("hub")
         logger.debug(
@@ -207,7 +207,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="span_settings")
         self.span_count_changed.emit(updated.span_count)
@@ -239,7 +239,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
 
         self._inducer = updated
@@ -282,7 +282,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="beta_calc")
 
@@ -323,7 +323,7 @@ class AppState(QObject):
         try:
             updated.validate()
         except ValueError as exc:
-            self.validation_failed.emit(str(exc))
+            self._emit_validation_failed(str(exc))
             return
         self.set_inducer(updated, source="linear_modes")
 
@@ -348,3 +348,7 @@ class AppState(QObject):
     def _emit_beta_distribution_changed(self) -> None:
         payload = self.get_beta_distribution_deg()
         self.beta_distribution_changed.emit(payload)
+
+    def _emit_validation_failed(self, message: str) -> None:
+        logger.warning("Validation failed: %s", message)
+        self.validation_failed.emit(message)
