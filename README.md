@@ -84,6 +84,10 @@ python -m pytest tests/test_bezier.py -v
 python -m pytest tests/ -v --cov=pumpforge3d_core
 ```
 
+## GUI Quality Standards
+
+See `docs/gui_quality_standards.md` for the commit policy, accessibility requirements, settings persistence keys, and test guidance.
+
 ## Project Structure
 
 ```

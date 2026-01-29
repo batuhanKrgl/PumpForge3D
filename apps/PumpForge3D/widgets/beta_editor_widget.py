@@ -10,12 +10,19 @@ import numpy as np
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QLabel, QCheckBox, QSpinBox,
+    QHeaderView, QLabel, QCheckBox, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent
 from PySide6.QtGui import QColor
 
+import logging
+
 from pumpforge3d_core.geometry.beta_distribution import BetaDistributionModel
+from ..styles import apply_form_label_style, apply_input_table_style
+from ..utils.editor_commit_filter import attach_commit_filter
+from ..widgets.blade_properties_widgets import StyledSpinBox
+
+logger = logging.getLogger(__name__)
 
 
 class BetaDistributionEditorWidget(QWidget):
@@ -41,7 +48,7 @@ class BetaDistributionEditorWidget(QWidget):
 
         self._model = BetaDistributionModel()
         self._updating = False
-        
+
         self._setup_ui()
         self._connect_signals()
         self._load_from_model()
@@ -54,16 +61,25 @@ class BetaDistributionEditorWidget(QWidget):
         
         # Left panel: Table + controls
         left_panel = QWidget()
+        left_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
         
         # Span count
         span_row = QHBoxLayout()
-        span_row.addWidget(QLabel("Spans:"))
-        self.span_spin = QSpinBox()
+        span_label = QLabel("Spans:")
+        apply_form_label_style(span_label)
+        span_row.addWidget(span_label)
+        self.span_spin = StyledSpinBox()
         self.span_spin.setRange(3, 25)
+        self.span_spin.setDecimals(0)
+        self.span_spin.setSingleStep(1)
         self.span_spin.setValue(self._model.span_count)
+        self.span_spin.spinbox.setProperty("last_valid_value", self._model.span_count)
+        self.span_spin.spinbox.setAccessibleName("Span count")
+        self.span_spin.spinbox.setAccessibleDescription("Number of spanwise stations for beta distribution.")
+        span_label.setBuddy(self.span_spin.spinbox)
         span_row.addWidget(self.span_spin)
         span_row.addStretch()
         left_layout.addLayout(span_row)
@@ -72,9 +88,13 @@ class BetaDistributionEditorWidget(QWidget):
         linear_row = QHBoxLayout()
         self.linear_inlet_check = QCheckBox("Linear Inlet")
         self.linear_inlet_check.setToolTip("Hub/Tip only editable, others interpolated")
+        self.linear_inlet_check.setAccessibleName("Linear inlet mode")
+        self.linear_inlet_check.setAccessibleDescription("Interpolate inlet beta values between hub and tip.")
         linear_row.addWidget(self.linear_inlet_check)
         self.linear_outlet_check = QCheckBox("Linear Outlet")
         self.linear_outlet_check.setToolTip("Hub/Tip only editable, others interpolated")
+        self.linear_outlet_check.setAccessibleName("Linear outlet mode")
+        self.linear_outlet_check.setAccessibleDescription("Interpolate outlet beta values between hub and tip.")
         linear_row.addWidget(self.linear_outlet_check)
         left_layout.addLayout(linear_row)
         
@@ -83,20 +103,45 @@ class BetaDistributionEditorWidget(QWidget):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["β_in (°)", "β_out (°)"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setMinimumWidth(180)
-        self.table.setMaximumWidth(250)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.table.setAccessibleName("Beta distribution table")
+        self.table.setAccessibleDescription("Spanwise inlet and outlet beta angles in degrees.")
+        apply_input_table_style(self.table)
         left_layout.addWidget(self.table, 1)
+
+        self.error_label = QLabel("")
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet("color: #f38ba8; font-size: 10px;")
+        self.error_label.setVisible(False)
+        left_layout.addWidget(self.error_label)
         
-        layout.addWidget(left_panel)
+        layout.addWidget(left_panel, 1)
         
     
     def _connect_signals(self):
         """Connect UI signals."""
-        self.span_spin.valueChanged.connect(self._on_span_count_changed)
+        self.span_spin.editingFinished.connect(self._on_span_count_changed)
         self.table.cellChanged.connect(self._on_table_cell_changed)
         # Linear mode toggles
         self.linear_inlet_check.toggled.connect(self._on_linear_inlet_toggled)
         self.linear_outlet_check.toggled.connect(self._on_linear_outlet_toggled)
+        attach_commit_filter(self.span_spin.spinbox)
+        self.table.installEventFilter(self)
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt naming
+        if watched is self.table and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                current = self.table.currentItem()
+                if current is not None:
+                    last_valid = current.data(Qt.ItemDataRole.UserRole)
+                    if last_valid is not None:
+                        self.table.blockSignals(True)
+                        current.setText(f"{float(last_valid):.1f}")
+                        self.table.blockSignals(False)
+                        return True
+        return super().eventFilter(watched, event)
     
     def _load_from_model(self):
         """Load table and plot from model."""
@@ -112,11 +157,13 @@ class BetaDistributionEditorWidget(QWidget):
             # Beta in
             item_in = QTableWidgetItem(f"{self._model.beta_in[i]:.1f}")
             item_in.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item_in.setData(Qt.ItemDataRole.UserRole, float(self._model.beta_in[i]))
             self.table.setItem(i, 0, item_in)
             
             # Beta out
             item_out = QTableWidgetItem(f"{self._model.beta_out[i]:.1f}")
             item_out.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item_out.setData(Qt.ItemDataRole.UserRole, float(self._model.beta_out[i]))
             self.table.setItem(i, 1, item_out)
             
             # Row header
@@ -125,9 +172,11 @@ class BetaDistributionEditorWidget(QWidget):
         
         # Update cell enabled state based on linear mode
         self._update_table_cell_states()
-        
+
         self._updating = False
-    
+        self._clear_error_state()
+        self._update_table_height()
+
     def _update_table_cell_states(self):
         """Enable/disable table cells based on linear mode."""
         for i in range(self._model.span_count):
@@ -152,14 +201,26 @@ class BetaDistributionEditorWidget(QWidget):
                 else:
                     item_out.setFlags(item_out.flags() | Qt.ItemFlag.ItemIsEditable)
                     item_out.setBackground(QColor('#1e1e2e'))
+
+    def _update_table_height(self) -> None:
+        header_height = self.table.horizontalHeader().sizeHint().height()
+        rows_height = sum(
+            max(self.table.rowHeight(row), self.table.sizeHintForRow(row))
+            for row in range(self.table.rowCount())
+        )
+        frame = self.table.frameWidth() * 2
+        total_height = header_height + rows_height + frame
+        self.table.setMinimumHeight(total_height)
     
-    def _on_span_count_changed(self, value: int):
+    def _on_span_count_changed(self):
         """Handle span count change."""
+        value = int(self.span_spin.value())
         self._model.set_span_count(value)
         self._model.apply_linear_mode()
         self._load_from_model()
         self.modelChanged.emit(self._model)
         self.spanCountChanged.emit(value)
+        self.span_spin.spinbox.setProperty("last_valid_value", value)
     
     def _on_linear_inlet_toggled(self, checked: bool):
         """Handle linear inlet mode toggle."""
@@ -195,7 +256,9 @@ class BetaDistributionEditorWidget(QWidget):
         try:
             value = float(item.text())
         except ValueError:
-            self._load_from_model()
+            self._set_error_state("Beta values must be numeric degrees.")
+            self._restore_cell_value(item)
+            logger.warning("Invalid beta value input at row %s col %s.", row, col)
             return
         
         self._updating = True
@@ -212,6 +275,33 @@ class BetaDistributionEditorWidget(QWidget):
         self._load_from_model()
         self.modelChanged.emit(self._model)
         self.betaCellEdited.emit(row, col, value)
+
+        self._clear_error_state()
+
+    def _restore_cell_value(self, item: QTableWidgetItem) -> None:
+        last_valid = item.data(Qt.ItemDataRole.UserRole)
+        if last_valid is None:
+            last_valid = 0.0
+        self._updating = True
+        item.setText(f"{float(last_valid):.1f}")
+        item.setData(Qt.ItemDataRole.UserRole, float(last_valid))
+        self._updating = False
+
+    def _set_error_state(self, message: str) -> None:
+        self.table.setProperty("error", True)
+        self.table.setToolTip(message)
+        self.table.style().unpolish(self.table)
+        self.table.style().polish(self.table)
+        self.error_label.setText(f"⚠ {message}")
+        self.error_label.setVisible(True)
+
+    def _clear_error_state(self) -> None:
+        self.table.setProperty("error", False)
+        self.table.setToolTip("")
+        self.table.style().unpolish(self.table)
+        self.table.style().polish(self.table)
+        self.error_label.setText("")
+        self.error_label.setVisible(False)
     
     
     # Public API
@@ -220,6 +310,7 @@ class BetaDistributionEditorWidget(QWidget):
         self._model = model
         self.span_spin.blockSignals(True)
         self.span_spin.setValue(model.span_count)
+        self.span_spin.spinbox.setProperty("last_valid_value", model.span_count)
         self.span_spin.blockSignals(False)
         self._load_from_model()
 
@@ -242,6 +333,7 @@ class BetaDistributionEditorWidget(QWidget):
         self._model.linear_outlet = linear_outlet
         self.span_spin.blockSignals(True)
         self.span_spin.setValue(span_count)
+        self.span_spin.spinbox.setProperty("last_valid_value", span_count)
         self.span_spin.blockSignals(False)
         self._load_from_model()
         self._updating = False

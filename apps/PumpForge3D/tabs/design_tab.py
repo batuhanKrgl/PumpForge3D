@@ -12,8 +12,10 @@ from PySide6.QtWidgets import (
     QComboBox, QTreeWidget, QTreeWidgetItem, QSizePolicy,
     QAbstractSpinBox
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QSettings
 from PySide6.QtGui import QFont
+
+import logging
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 from pumpforge3d_core.geometry.meridional import MainDimensions, CurveMode
@@ -21,6 +23,9 @@ from pumpforge3d_core.geometry.meridional import MainDimensions, CurveMode
 from ..widgets.diagram_widget import DiagramWidget
 from ..widgets.analysis_plot import AnalysisPlotWidget
 from ..styles import apply_section_header_style
+from ..utils.editor_commit_filter import attach_commit_filter
+
+logger = logging.getLogger(__name__)
 
 
 class StyledSpinBox(QWidget):
@@ -46,6 +51,8 @@ class StyledSpinBox(QWidget):
         self.minus_btn.setText("−")
         self.minus_btn.setFixedSize(20, 24)
         self.minus_btn.setAutoRepeat(True)
+        self.minus_btn.setAccessibleName("Decrease value")
+        self.minus_btn.setAccessibleDescription("Decrease the value.")
         self.minus_btn.clicked.connect(self._decrement)
         layout.addWidget(self.minus_btn)
         
@@ -61,6 +68,8 @@ class StyledSpinBox(QWidget):
         self.plus_btn.setText("+")
         self.plus_btn.setFixedSize(20, 24)
         self.plus_btn.setAutoRepeat(True)
+        self.plus_btn.setAccessibleName("Increase value")
+        self.plus_btn.setAccessibleDescription("Increase the value.")
         self.plus_btn.clicked.connect(self._increment)
         layout.addWidget(self.plus_btn)
     
@@ -82,6 +91,7 @@ class StyledSpinBox(QWidget):
     
     def setValue(self, val: float):
         self.spinbox.setValue(val)
+        self._set_last_valid_value(val)
     
     def setRange(self, min_val: float, max_val: float):
         self.spinbox.setRange(min_val, max_val)
@@ -97,6 +107,14 @@ class StyledSpinBox(QWidget):
     
     def blockSignals(self, block: bool) -> bool:
         return self.spinbox.blockSignals(block)
+
+    def _set_last_valid_value(self, value: float) -> None:
+        self.spinbox.setProperty("last_valid_value", value)
+
+    def revert_to_last_valid(self) -> None:
+        last_valid = self.spinbox.property("last_valid_value")
+        if last_valid is not None:
+            self.spinbox.setValue(float(last_valid))
 
 
 class CollapsibleSection(QWidget):
@@ -116,6 +134,8 @@ class CollapsibleSection(QWidget):
         # Header button
         self.header = QPushButton(f"▼ {self.title}")
         apply_section_header_style(self.header)
+        self.header.setAccessibleName(f"{self.title} section")
+        self.header.setAccessibleDescription(f"Expand or collapse the {self.title} section.")
         self.header.clicked.connect(self._toggle)
         layout.addWidget(self.header)
         
@@ -162,10 +182,11 @@ class DesignTab(QWidget):
         super().__init__(parent)
         self.design = design
         self.undo_stack = undo_stack
-        self._dimension_apply_timer = QTimer(self)
-        self._dimension_apply_timer.setSingleShot(True)
-        self._dimension_apply_timer.setInterval(200)
-        self._dimension_apply_timer.timeout.connect(self._apply_dimensions)
+        self._analysis_update_timer = QTimer(self)
+        self._analysis_update_timer.setSingleShot(True)
+        self._analysis_update_timer.setInterval(150)
+        self._analysis_update_timer.timeout.connect(self._update_analysis_plots)
+        self._last_valid_dims = {}
         self._setup_ui()
         self._load_from_design()
         self._connect_signals()
@@ -193,6 +214,8 @@ class DesignTab(QWidget):
         
         self.diagram = DiagramWidget(self.design)
         self.diagram.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.diagram.setAccessibleName("Meridional diagram")
+        self.diagram.setAccessibleDescription("Interactive meridional contour editor.")
         center_layout.addWidget(self.diagram, 1)  # stretch factor 1
         
         # Status bar for selected point (F1 fix)
@@ -204,6 +227,7 @@ class DesignTab(QWidget):
             border-top: 1px solid #313244;
             font-size: 11px;
         """)
+        self.point_status_bar.setAccessibleName("Point status")
         center_layout.addWidget(self.point_status_bar)
         
         self.splitter.addWidget(center_widget)
@@ -219,6 +243,19 @@ class DesignTab(QWidget):
         self.splitter.setStretchFactor(2, 0)  # Right fixed
         
         main_layout.addWidget(self.splitter, 1)
+
+        QWidget.setTabOrder(self.r_h_in_spin.spinbox, self.r_t_in_spin.spinbox)
+        QWidget.setTabOrder(self.r_t_in_spin.spinbox, self.r_h_out_spin.spinbox)
+        QWidget.setTabOrder(self.r_h_out_spin.spinbox, self.r_t_out_spin.spinbox)
+        QWidget.setTabOrder(self.r_t_out_spin.spinbox, self.separate_L_check)
+        QWidget.setTabOrder(self.separate_L_check, self.L_hub_spin.spinbox)
+        QWidget.setTabOrder(self.L_hub_spin.spinbox, self.L_tip_spin.spinbox)
+        QWidget.setTabOrder(self.L_tip_spin.spinbox, self.le_mode_combo)
+        QWidget.setTabOrder(self.le_mode_combo, self.le_hub_pos.spinbox)
+        QWidget.setTabOrder(self.le_hub_pos.spinbox, self.le_tip_pos.spinbox)
+        QWidget.setTabOrder(self.le_tip_pos.spinbox, self.te_mode_combo)
+        QWidget.setTabOrder(self.te_mode_combo, self.te_hub_pos.spinbox)
+        QWidget.setTabOrder(self.te_hub_pos.spinbox, self.te_tip_pos.spinbox)
         
         # Note: Overlay toolbar removed - using diagram's built-in toolbar
     
@@ -247,42 +284,74 @@ class DesignTab(QWidget):
         self.r_h_in_spin.setRange(0, 1000)
         self.r_h_in_spin.setDecimals(2)
         self.r_h_in_spin.setSuffix(" mm")
-        dims_form.addRow(create_subscript_label("r", "h,in"), self.r_h_in_spin)
+        r_h_in_label = create_subscript_label("r", "h,in")
+        r_h_in_label.setBuddy(self.r_h_in_spin.spinbox)
+        dims_form.addRow(r_h_in_label, self.r_h_in_spin)
+        self.r_h_in_spin.spinbox.setAccessibleName("Inlet hub radius")
+        self.r_h_in_spin.spinbox.setAccessibleDescription("Inlet hub radius in millimeters.")
         
         self.r_t_in_spin = StyledSpinBox()
         self.r_t_in_spin.setRange(0, 1000)
         self.r_t_in_spin.setDecimals(2)
         self.r_t_in_spin.setSuffix(" mm")
-        dims_form.addRow(create_subscript_label("r", "t,in"), self.r_t_in_spin)
+        r_t_in_label = create_subscript_label("r", "t,in")
+        r_t_in_label.setBuddy(self.r_t_in_spin.spinbox)
+        dims_form.addRow(r_t_in_label, self.r_t_in_spin)
+        self.r_t_in_spin.spinbox.setAccessibleName("Inlet tip radius")
+        self.r_t_in_spin.spinbox.setAccessibleDescription("Inlet tip radius in millimeters.")
         
         self.r_h_out_spin = StyledSpinBox()
         self.r_h_out_spin.setRange(0, 1000)
         self.r_h_out_spin.setDecimals(2)
         self.r_h_out_spin.setSuffix(" mm")
-        dims_form.addRow(create_subscript_label("r", "h,out"), self.r_h_out_spin)
+        r_h_out_label = create_subscript_label("r", "h,out")
+        r_h_out_label.setBuddy(self.r_h_out_spin.spinbox)
+        dims_form.addRow(r_h_out_label, self.r_h_out_spin)
+        self.r_h_out_spin.spinbox.setAccessibleName("Outlet hub radius")
+        self.r_h_out_spin.spinbox.setAccessibleDescription("Outlet hub radius in millimeters.")
         
         self.r_t_out_spin = StyledSpinBox()
         self.r_t_out_spin.setRange(0, 1000)
         self.r_t_out_spin.setDecimals(2)
         self.r_t_out_spin.setSuffix(" mm")
-        dims_form.addRow(create_subscript_label("r", "t,out"), self.r_t_out_spin)
+        r_t_out_label = create_subscript_label("r", "t,out")
+        r_t_out_label.setBuddy(self.r_t_out_spin.spinbox)
+        dims_form.addRow(r_t_out_label, self.r_t_out_spin)
+        self.r_t_out_spin.spinbox.setAccessibleName("Outlet tip radius")
+        self.r_t_out_spin.spinbox.setAccessibleDescription("Outlet tip radius in millimeters.")
         
         # Axial lengths at bottom (properly aligned in form)
         self.separate_L_check = QCheckBox("Separate hub/tip axial length")
+        self.separate_L_check.setAccessibleName("Separate hub and tip axial length")
+        self.separate_L_check.setAccessibleDescription("Enable separate axial length inputs for hub and tip.")
         dims_form.addRow("", self.separate_L_check)
         
         self.L_hub_spin = StyledSpinBox()
         self.L_hub_spin.setRange(1, 10000)
         self.L_hub_spin.setDecimals(2)
         self.L_hub_spin.setSuffix(" mm")
-        dims_form.addRow(create_subscript_label("L", "hub"), self.L_hub_spin)
+        L_hub_label = create_subscript_label("L", "hub")
+        L_hub_label.setBuddy(self.L_hub_spin.spinbox)
+        dims_form.addRow(L_hub_label, self.L_hub_spin)
+        self.L_hub_spin.spinbox.setAccessibleName("Hub axial length")
+        self.L_hub_spin.spinbox.setAccessibleDescription("Hub axial length in millimeters.")
         
         self.L_tip_spin = StyledSpinBox()
         self.L_tip_spin.setRange(1, 10000)
         self.L_tip_spin.setDecimals(2)
         self.L_tip_spin.setSuffix(" mm")
         self.L_tip_spin.setEnabled(False)  # Disabled when locked
-        dims_form.addRow(create_subscript_label("L", "tip"), self.L_tip_spin)
+        L_tip_label = create_subscript_label("L", "tip")
+        L_tip_label.setBuddy(self.L_tip_spin.spinbox)
+        dims_form.addRow(L_tip_label, self.L_tip_spin)
+        self.L_tip_spin.spinbox.setAccessibleName("Tip axial length")
+        self.L_tip_spin.spinbox.setAccessibleDescription("Tip axial length in millimeters.")
+
+        self.dimension_error_label = QLabel("")
+        self.dimension_error_label.setWordWrap(True)
+        self.dimension_error_label.setStyleSheet("color: #f38ba8; font-size: 10px;")
+        self.dimension_error_label.setVisible(False)
+        dims_section.addWidget(self.dimension_error_label)
         
         dims_section.addLayout(dims_form)
         
@@ -302,27 +371,39 @@ class DesignTab(QWidget):
         edges_section.addWidget(le_label)
         
         le_mode_row = QHBoxLayout()
-        le_mode_row.addWidget(QLabel("Mode:"))
+        le_mode_label = QLabel("Mode:")
+        le_mode_row.addWidget(le_mode_label)
         self.le_mode_combo = QComboBox()
         self.le_mode_combo.addItems(["Straight", "Bezier (Quadratic)"])
+        self.le_mode_combo.setAccessibleName("Leading edge mode")
+        self.le_mode_combo.setAccessibleDescription("Select the leading edge curve mode.")
+        le_mode_label.setBuddy(self.le_mode_combo)
         le_mode_row.addWidget(self.le_mode_combo)
         edges_section.addLayout(le_mode_row)
         
         le_hub_row = QHBoxLayout()
-        le_hub_row.addWidget(QLabel("Hub position:"))
+        le_hub_label = QLabel("Hub position:")
+        le_hub_row.addWidget(le_hub_label)
         self.le_hub_pos = StyledSpinBox()
         self.le_hub_pos.setRange(0, 1)
         self.le_hub_pos.setDecimals(3)
         self.le_hub_pos.setSingleStep(0.01)
+        self.le_hub_pos.spinbox.setAccessibleName("Leading edge hub position")
+        self.le_hub_pos.spinbox.setAccessibleDescription("Leading edge hub curve parameter (0 to 1).")
+        le_hub_label.setBuddy(self.le_hub_pos.spinbox)
         le_hub_row.addWidget(self.le_hub_pos)
         edges_section.addLayout(le_hub_row)
         
         le_tip_row = QHBoxLayout()
-        le_tip_row.addWidget(QLabel("Tip position:"))
+        le_tip_label = QLabel("Tip position:")
+        le_tip_row.addWidget(le_tip_label)
         self.le_tip_pos = StyledSpinBox()
         self.le_tip_pos.setRange(0, 1)
         self.le_tip_pos.setDecimals(3)
         self.le_tip_pos.setSingleStep(0.01)
+        self.le_tip_pos.spinbox.setAccessibleName("Leading edge tip position")
+        self.le_tip_pos.spinbox.setAccessibleDescription("Leading edge tip curve parameter (0 to 1).")
+        le_tip_label.setBuddy(self.le_tip_pos.spinbox)
         le_tip_row.addWidget(self.le_tip_pos)
         edges_section.addLayout(le_tip_row)
         
@@ -331,27 +412,39 @@ class DesignTab(QWidget):
         edges_section.addWidget(te_label)
         
         te_mode_row = QHBoxLayout()
-        te_mode_row.addWidget(QLabel("Mode:"))
+        te_mode_label = QLabel("Mode:")
+        te_mode_row.addWidget(te_mode_label)
         self.te_mode_combo = QComboBox()
         self.te_mode_combo.addItems(["Straight", "Bezier (Quadratic)"])
+        self.te_mode_combo.setAccessibleName("Trailing edge mode")
+        self.te_mode_combo.setAccessibleDescription("Select the trailing edge curve mode.")
+        te_mode_label.setBuddy(self.te_mode_combo)
         te_mode_row.addWidget(self.te_mode_combo)
         edges_section.addLayout(te_mode_row)
         
         te_hub_row = QHBoxLayout()
-        te_hub_row.addWidget(QLabel("Hub position:"))
+        te_hub_label = QLabel("Hub position:")
+        te_hub_row.addWidget(te_hub_label)
         self.te_hub_pos = StyledSpinBox()
         self.te_hub_pos.setRange(0, 1)
         self.te_hub_pos.setDecimals(3)
         self.te_hub_pos.setSingleStep(0.01)
+        self.te_hub_pos.spinbox.setAccessibleName("Trailing edge hub position")
+        self.te_hub_pos.spinbox.setAccessibleDescription("Trailing edge hub curve parameter (0 to 1).")
+        te_hub_label.setBuddy(self.te_hub_pos.spinbox)
         te_hub_row.addWidget(self.te_hub_pos)
         edges_section.addLayout(te_hub_row)
         
         te_tip_row = QHBoxLayout()
-        te_tip_row.addWidget(QLabel("Tip position:"))
+        te_tip_label = QLabel("Tip position:")
+        te_tip_row.addWidget(te_tip_label)
         self.te_tip_pos = StyledSpinBox()
         self.te_tip_pos.setRange(0, 1)
         self.te_tip_pos.setDecimals(3)
         self.te_tip_pos.setSingleStep(0.01)
+        self.te_tip_pos.spinbox.setAccessibleName("Trailing edge tip position")
+        self.te_tip_pos.spinbox.setAccessibleDescription("Trailing edge tip curve parameter (0 to 1).")
+        te_tip_label.setBuddy(self.te_tip_pos.spinbox)
         te_tip_row.addWidget(self.te_tip_pos)
         edges_section.addLayout(te_tip_row)
         
@@ -362,9 +455,13 @@ class DesignTab(QWidget):
         
         self.cp_mode_free = QCheckBox("Free movement")
         self.cp_mode_free.setChecked(True)
+        self.cp_mode_free.setAccessibleName("Control point free movement")
+        self.cp_mode_free.setAccessibleDescription("Allow free movement of control points.")
         cp_mode_section.addWidget(self.cp_mode_free)
         
         self.cp_mode_bbox = QCheckBox("Bounding box constraint")
+        self.cp_mode_bbox.setAccessibleName("Control point bounding box constraint")
+        self.cp_mode_bbox.setAccessibleDescription("Restrict control point movement to bounding box.")
         cp_mode_section.addWidget(self.cp_mode_bbox)
         
         layout.addWidget(cp_mode_section)
@@ -394,6 +491,8 @@ class DesignTab(QWidget):
         self.info_tree.setHeaderHidden(True)
         self.info_tree.setMinimumHeight(180)
         self.info_tree.setMaximumHeight(220)
+        self.info_tree.setAccessibleName("Design summary")
+        self.info_tree.setAccessibleDescription("Summary of key inducer dimensions and arc lengths.")
         info_section.addWidget(self.info_tree)
         
         layout.addWidget(info_section)
@@ -402,6 +501,8 @@ class DesignTab(QWidget):
         analysis_section = CollapsibleSection("Analysis Plots")
         
         self.analysis_widget = AnalysisPlotWidget(self.design)
+        self.analysis_widget.setAccessibleName("Analysis plots")
+        self.analysis_widget.setAccessibleDescription("Curvature and area plots for the current design.")
         analysis_section.addWidget(self.analysis_widget)
         
         layout.addWidget(analysis_section)
@@ -411,6 +512,7 @@ class DesignTab(QWidget):
         
         self.validation_label = QLabel("✅ Design is valid")
         self.validation_label.setWordWrap(True)
+        self.validation_label.setAccessibleName("Validation results")
         validation_section.addWidget(self.validation_label)
         
         layout.addWidget(validation_section)
@@ -422,14 +524,7 @@ class DesignTab(QWidget):
     
     def _connect_signals(self):
         """Connect UI signals."""
-        # Dimension spinboxes - debounce while typing, commit on editing finished
-        self.r_h_in_spin.valueChanged.connect(self._schedule_dimension_apply)
-        self.r_t_in_spin.valueChanged.connect(self._schedule_dimension_apply)
-        self.r_h_out_spin.valueChanged.connect(self._schedule_dimension_apply)
-        self.r_t_out_spin.valueChanged.connect(self._schedule_dimension_apply)
-        self.L_hub_spin.valueChanged.connect(self._schedule_dimension_apply)
-        self.L_tip_spin.valueChanged.connect(self._schedule_dimension_apply)
-
+        # Dimension spinboxes - commit on editing finished
         self.r_h_in_spin.editingFinished.connect(self._apply_dimensions)
         self.r_t_in_spin.editingFinished.connect(self._apply_dimensions)
         self.r_h_out_spin.editingFinished.connect(self._apply_dimensions)
@@ -442,11 +537,11 @@ class DesignTab(QWidget):
         
         # LE/TE controls - wire to update geometry
         self.le_mode_combo.currentIndexChanged.connect(self._on_edge_mode_changed)
-        self.le_hub_pos.valueChanged.connect(self._on_edge_position_changed)
-        self.le_tip_pos.valueChanged.connect(self._on_edge_position_changed)
+        self.le_hub_pos.editingFinished.connect(self._on_edge_position_changed)
+        self.le_tip_pos.editingFinished.connect(self._on_edge_position_changed)
         self.te_mode_combo.currentIndexChanged.connect(self._on_edge_mode_changed)
-        self.te_hub_pos.valueChanged.connect(self._on_edge_position_changed)
-        self.te_tip_pos.valueChanged.connect(self._on_edge_position_changed)
+        self.te_hub_pos.editingFinished.connect(self._on_edge_position_changed)
+        self.te_tip_pos.editingFinished.connect(self._on_edge_position_changed)
         
         # Diagram signals
         self.diagram.geometry_changed.connect(self._on_diagram_geometry_changed)
@@ -455,6 +550,14 @@ class DesignTab(QWidget):
         # CP mode (exclusive + wire to diagram)
         self.cp_mode_free.toggled.connect(self._on_cp_mode_free)
         self.cp_mode_bbox.toggled.connect(self._on_cp_mode_bbox)
+
+        # Enter/Escape commit handling for spinboxes
+        for spin in [
+            self.r_h_in_spin, self.r_t_in_spin, self.r_h_out_spin, self.r_t_out_spin,
+            self.L_hub_spin, self.L_tip_spin, self.le_hub_pos, self.le_tip_pos,
+            self.te_hub_pos, self.te_tip_pos,
+        ]:
+            attach_commit_filter(spin.spinbox)
     
     def _load_from_design(self):
         """Load current values from design."""
@@ -480,6 +583,15 @@ class DesignTab(QWidget):
         self.r_t_out_spin.blockSignals(False)
         self.L_hub_spin.blockSignals(False)
         self.L_tip_spin.blockSignals(False)
+
+        self._last_valid_dims = {
+            "r_h_in": dims.r_h_in,
+            "r_t_in": dims.r_t_in,
+            "r_h_out": dims.r_h_out,
+            "r_t_out": dims.r_t_out,
+            "L": dims.L,
+        }
+        self._clear_dimension_error()
         
         # Update edge positions
         self.le_hub_pos.setValue(getattr(self.design.contour.leading_edge, 'hub_t', 0.0))
@@ -515,24 +627,26 @@ class DesignTab(QWidget):
             else:
                 self.design.set_main_dimensions(new_dims)
                 self._on_dimensions_applied()
-                
-        except ValueError as e:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Invalid Dimensions", str(e))
+            self._last_valid_dims = new_dims_dict
+            self._clear_dimension_error()
+            for spin in [
+                self.r_h_in_spin, self.r_t_in_spin, self.r_h_out_spin,
+                self.r_t_out_spin, self.L_hub_spin, self.L_tip_spin,
+            ]:
+                spin.spinbox.setProperty("last_valid_value", spin.value())
 
-    def _schedule_dimension_apply(self):
-        """Debounce dimension updates to avoid excessive redraws."""
-        if self._dimension_apply_timer.isActive():
-            self._dimension_apply_timer.stop()
-        self._dimension_apply_timer.start()
-    
+        except ValueError as e:
+            logger.warning("Invalid dimension input: %s", e)
+            self._set_dimension_error(str(e))
+            self._restore_last_valid_dimensions()
+
     def _on_dimensions_applied(self):
         """Called after dimensions are applied."""
         self.design.contour.update_from_dimensions(self.design.main_dims)
         self.diagram.update_plot()
         self._update_info_tree()
         self._update_validation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
         self.dimensions_changed.emit()
         self.geometry_changed.emit()
         self.geometry_committed.emit(self._build_geometry_payload())
@@ -581,7 +695,7 @@ class DesignTab(QWidget):
         self.diagram.update_plot()
         self._update_info_tree()
         self._update_validation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
         self.geometry_changed.emit()
     
     def _on_cp_mode_free(self, checked: bool):
@@ -604,6 +718,65 @@ class DesignTab(QWidget):
         # When locking (unchecking), sync tip to hub
         if not checked:
             self.L_tip_spin.setValue(self.L_hub_spin.value())
+
+    def _set_dimension_error(self, message: str) -> None:
+        widgets = [
+            self.r_h_in_spin.spinbox,
+            self.r_t_in_spin.spinbox,
+            self.r_h_out_spin.spinbox,
+            self.r_t_out_spin.spinbox,
+            self.L_hub_spin.spinbox,
+            self.L_tip_spin.spinbox,
+        ]
+        for widget in widgets:
+            widget.setProperty("error", True)
+            widget.setToolTip(message)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self.dimension_error_label.setText(f"⚠ {message}")
+        self.dimension_error_label.setVisible(True)
+
+    def _clear_dimension_error(self) -> None:
+        widgets = [
+            self.r_h_in_spin.spinbox,
+            self.r_t_in_spin.spinbox,
+            self.r_h_out_spin.spinbox,
+            self.r_t_out_spin.spinbox,
+            self.L_hub_spin.spinbox,
+            self.L_tip_spin.spinbox,
+        ]
+        for widget in widgets:
+            widget.setProperty("error", False)
+            widget.setToolTip("")
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        if hasattr(self, "dimension_error_label"):
+            self.dimension_error_label.setText("")
+            self.dimension_error_label.setVisible(False)
+
+    def _restore_last_valid_dimensions(self) -> None:
+        if not self._last_valid_dims:
+            return
+        self.r_h_in_spin.blockSignals(True)
+        self.r_t_in_spin.blockSignals(True)
+        self.r_h_out_spin.blockSignals(True)
+        self.r_t_out_spin.blockSignals(True)
+        self.L_hub_spin.blockSignals(True)
+        self.L_tip_spin.blockSignals(True)
+
+        self.r_h_in_spin.setValue(self._last_valid_dims["r_h_in"])
+        self.r_t_in_spin.setValue(self._last_valid_dims["r_t_in"])
+        self.r_h_out_spin.setValue(self._last_valid_dims["r_h_out"])
+        self.r_t_out_spin.setValue(self._last_valid_dims["r_t_out"])
+        self.L_hub_spin.setValue(self._last_valid_dims["L"])
+        self.L_tip_spin.setValue(self._last_valid_dims["L"])
+
+        self.r_h_in_spin.blockSignals(False)
+        self.r_t_in_spin.blockSignals(False)
+        self.r_h_out_spin.blockSignals(False)
+        self.r_t_out_spin.blockSignals(False)
+        self.L_hub_spin.blockSignals(False)
+        self.L_tip_spin.blockSignals(False)
     
     def _on_diagram_geometry_changed(self):
         """Handle geometry change from diagram."""
@@ -612,7 +785,7 @@ class DesignTab(QWidget):
         
         self._update_info_tree()
         self._update_validation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
         self.geometry_changed.emit()
         self.geometry_committed.emit(self._build_geometry_payload())
 
@@ -695,7 +868,12 @@ class DesignTab(QWidget):
             text = "✅ Design is valid"
         
         self.validation_label.setText(text)
-    
+
+    def _schedule_analysis_update(self) -> None:
+        if self._analysis_update_timer.isActive():
+            self._analysis_update_timer.stop()
+        self._analysis_update_timer.start()
+
     def _update_analysis_plots(self):
         """Update analysis plots with current geometry."""
         if hasattr(self, 'analysis_widget'):
@@ -732,8 +910,16 @@ class DesignTab(QWidget):
         self.diagram.update_plot()
         self._update_info_tree()
         self._update_validation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
     
     def fit_view(self):
         """Fit the diagram view."""
         self.diagram.fit_view()
+
+    def save_settings(self, settings: QSettings) -> None:
+        settings.setValue("design_tab/splitter_sizes", self.splitter.sizes())
+
+    def restore_settings(self, settings: QSettings) -> None:
+        sizes = settings.value("design_tab/splitter_sizes")
+        if sizes:
+            self.splitter.setSizes([int(size) for size in sizes])

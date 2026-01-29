@@ -18,10 +18,12 @@ from PySide6.QtWidgets import (
     QFormLayout, QScrollArea, QFrame, QLabel, QToolBox, QSizePolicy,
     QPushButton
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSettings, QTimer
+
+import logging
 
 from ..widgets.velocity_triangle_widget import VelocityTriangleWidget
-from ..styles import apply_section_header_style, apply_splitter_style
+from ..styles import apply_form_label_style, apply_plain_label_style, apply_section_header_style, apply_splitter_style
 from ..widgets.blade_properties_widgets import (
     BladeThicknessMatrixWidget, BladeInputsWidget,
 )
@@ -36,6 +38,8 @@ from pumpforge3d_core.analysis.blade_properties import (
 from ..app.state.app_state import AppState
 
 from core.velocity_triangles import InletTriangle, OutletTriangle
+
+logger = logging.getLogger(__name__)
 
 
 class CollapsibleSection(QWidget):
@@ -55,6 +59,8 @@ class CollapsibleSection(QWidget):
         # Header button
         self.header = QPushButton(f"▼ {self.title}")
         apply_section_header_style(self.header)
+        self.header.setAccessibleName(f"{self.title} section")
+        self.header.setAccessibleDescription(f"Expand or collapse the {self.title} section.")
         self.header.clicked.connect(self._toggle)
         layout.addWidget(self.header)
 
@@ -93,6 +99,10 @@ class BladePropertiesTab(QWidget):
     def __init__(self, parent=None, app_state: AppState | None = None):
         super().__init__(parent)
         self._state = app_state or AppState.create_default()
+        self._analysis_update_timer = QTimer(self)
+        self._analysis_update_timer.setSingleShot(True)
+        self._analysis_update_timer.setInterval(150)
+        self._analysis_update_timer.timeout.connect(self._update_analysis_plots)
 
         # Initialize blade properties
         self._blade_properties = BladeProperties(
@@ -152,6 +162,16 @@ class BladePropertiesTab(QWidget):
 
         main_layout.addWidget(self.main_splitter)
 
+        QWidget.setTabOrder(self.thickness_widget.table, self.blade_inputs_widget.blade_count_spin.spinbox)
+        QWidget.setTabOrder(self.blade_inputs_widget.blade_count_spin.spinbox, self.blade_inputs_widget.incidence_hub_spin.spinbox)
+        QWidget.setTabOrder(self.blade_inputs_widget.incidence_hub_spin.spinbox, self.blade_inputs_widget.incidence_tip_spin.spinbox)
+        QWidget.setTabOrder(self.blade_inputs_widget.incidence_tip_spin.spinbox, self.blade_inputs_widget.slip_mode_combo)
+        QWidget.setTabOrder(self.blade_inputs_widget.slip_mode_combo, self.blade_inputs_widget.mock_slip_hub_spin.spinbox)
+        QWidget.setTabOrder(self.blade_inputs_widget.mock_slip_hub_spin.spinbox, self.blade_inputs_widget.mock_slip_tip_spin.spinbox)
+        QWidget.setTabOrder(self.blade_inputs_widget.mock_slip_tip_spin.spinbox, self.beta_calc_button)
+        QWidget.setTabOrder(self.beta_calc_button, self.beta_widget.span_spin.spinbox)
+        QWidget.setTabOrder(self.beta_widget.span_spin.spinbox, self.beta_widget.table)
+
     def _create_left_panel(self) -> QWidget:
         """Create left input panel with collapsible groups."""
         panel = QFrame()
@@ -185,6 +205,8 @@ class BladePropertiesTab(QWidget):
         thickness_group = CollapsibleSection("Blade Thickness")
 
         self.thickness_widget = BladeThicknessMatrixWidget()
+        self.thickness_widget.setAccessibleName("Blade thickness table")
+        self.thickness_widget.setAccessibleDescription("Blade thickness at hub/tip for inlet and outlet.")
         thickness_group.addWidget(self.thickness_widget)
 
         scroll_layout.addWidget(thickness_group)
@@ -193,6 +215,8 @@ class BladePropertiesTab(QWidget):
         params_group = CollapsibleSection("Blade Parameters")
 
         self.blade_inputs_widget = BladeInputsWidget()
+        self.blade_inputs_widget.setAccessibleName("Blade parameter inputs")
+        self.blade_inputs_widget.setAccessibleDescription("Blade count, incidence, and slip inputs.")
         params_group.addWidget(self.blade_inputs_widget)
 
         scroll_layout.addWidget(params_group)
@@ -206,9 +230,13 @@ class BladePropertiesTab(QWidget):
 
         self.beta_calc_button = QPushButton("Calc")
         self.beta_calc_button.setToolTip("Recompute spanwise beta distribution using current method")
+        self.beta_calc_button.setAccessibleName("Recalculate beta distribution")
+        self.beta_calc_button.setAccessibleDescription("Recompute spanwise beta distribution using current method.")
         beta_layout.addWidget(self.beta_calc_button)
 
         self.beta_widget = BetaDistributionEditorWidget()
+        self.beta_widget.setAccessibleName("Beta distribution editor")
+        self.beta_widget.setAccessibleDescription("Edit spanwise inlet and outlet blade angles.")
         beta_layout.addWidget(self.beta_widget)
 
         beta_group.addWidget(beta_container)
@@ -249,20 +277,15 @@ class BladePropertiesTab(QWidget):
         header_layout.setSpacing(6)
 
         title = QLabel("◈ Velocity Triangles")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-            }
-        """)
+        apply_plain_label_style(title)
         header_layout.addWidget(title)
 
         header_layout.addStretch()
 
         # Parameter window button
         params_btn = QPushButton("⚙ Parameters")
+        params_btn.setAccessibleName("Velocity triangle parameters")
+        params_btn.setAccessibleDescription("Open the velocity triangle parameter window.")
         params_btn.setStyleSheet("""
             QPushButton {
                 background-color: #313244;
@@ -285,13 +308,8 @@ class BladePropertiesTab(QWidget):
 
         # Mini info label (optional, shows current settings)
         self.triangle_info_label = QLabel("1×4 Subplots | Hub/Shroud Leading/Trailing")
-        self.triangle_info_label.setStyleSheet("""
-            QLabel {
-                color: #a6adc8;
-                font-size: 9px;
-                padding: 4px;
-            }
-        """)
+        apply_plain_label_style(self.triangle_info_label)
+        self.triangle_info_label.setStyleSheet("color: #a6adc8; font-size: 9px; padding: 2px 4px; background: transparent; border: none;")
         header_layout.addWidget(self.triangle_info_label)
 
         panel_layout.addLayout(header_layout)
@@ -300,6 +318,8 @@ class BladePropertiesTab(QWidget):
         self.triangle_widget = VelocityTriangleWidget()
         self.triangle_widget.set_state(self._state)
         self.triangle_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.triangle_widget.setAccessibleName("Velocity triangles")
+        self.triangle_widget.setAccessibleDescription("Velocity triangle visualization for hub and shroud.")
         panel_layout.addWidget(self.triangle_widget)
 
         return panel
@@ -323,16 +343,7 @@ class BladePropertiesTab(QWidget):
 
         # Panel title
         title = QLabel("📊 Analysis & Details")
-        title.setStyleSheet("""
-            QLabel {
-                color: #89b4fa;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 6px 4px;
-                background-color: #1e1e2e;
-                border-radius: 3px;
-            }
-        """)
+        apply_plain_label_style(title)
         title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(title)
 
@@ -350,6 +361,8 @@ class BladePropertiesTab(QWidget):
 
         self.inducer_info_table = InducerInfoTableWidget()
         self.inducer_info_table.setMinimumWidth(340)
+        self.inducer_info_table.setAccessibleName("Inducer info")
+        self.inducer_info_table.setAccessibleDescription("Table of inducer information and derived values.")
         info_layout.addWidget(self.inducer_info_table)
         splitter.addWidget(info_widget)
 
@@ -360,6 +373,8 @@ class BladePropertiesTab(QWidget):
         plots_layout.setSpacing(4)
 
         self.analysis_plots = BladeAnalysisPlotWidget()
+        self.analysis_plots.setAccessibleName("Blade analysis plots")
+        self.analysis_plots.setAccessibleDescription("Plots of spanwise beta, slip, and incidence data.")
         plots_layout.addWidget(self.analysis_plots)
 
         splitter.addWidget(plots_widget)
@@ -413,7 +428,7 @@ class BladePropertiesTab(QWidget):
     def _on_inducer_changed(self, inducer):
         """Handle inducer changes from AppState."""
         self._sync_params_window(inducer)
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_inducer_info_changed(self, snapshot: dict):
         self.inducer_info_table.set_snapshot(snapshot)
@@ -433,12 +448,12 @@ class BladePropertiesTab(QWidget):
         """Handle blade count change."""
         self._blade_properties.blade_count = count
         self._update_slip_calculation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_incidence_changed(self, hub_incidence, tip_incidence):
         """Handle incidence change."""
         self._blade_properties.incidence_deg = (hub_incidence + tip_incidence) / 2.0
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_slip_mode_changed(self, mode):
         """Handle slip mode change."""
@@ -452,14 +467,15 @@ class BladePropertiesTab(QWidget):
 
     def _on_triangle_inputs_changed(self):
         """Handle velocity triangle input changes."""
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_spanwise_triangles_changed(self, payload: dict) -> None:
         """Handle spanwise triangle updates."""
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_beta_calc_clicked(self) -> None:
         """Handle Calc button for beta distribution."""
+        logger.info("Beta distribution recalculation requested.")
         self._state.run_calc_current_method()
 
     def _on_span_count_changed(self, value: int) -> None:
@@ -481,10 +497,11 @@ class BladePropertiesTab(QWidget):
             linear_outlet=payload["linear_outlet"],
         )
         self._update_slip_calculation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _on_params_changed(self, params: dict):
         """Handle parameter window changes."""
+        logger.info("Velocity triangle parameters applied: %s", params)
         self._state.apply_numeric_inputs(params)
 
     def _toggle_params_window(self):
@@ -499,7 +516,7 @@ class BladePropertiesTab(QWidget):
     def _update_all(self):
         """Update all displays."""
         self._update_slip_calculation()
-        self._update_analysis_plots()
+        self._schedule_analysis_update()
 
     def _update_slip_calculation(self):
         """Update slip calculation display."""
@@ -521,6 +538,10 @@ class BladePropertiesTab(QWidget):
         # Slip calculation results are used in triangle details and analysis plots
         # No separate display widget needed - inputs are in Blade Parameters section
 
+    def _schedule_analysis_update(self) -> None:
+        if self._analysis_update_timer.isActive():
+            self._analysis_update_timer.stop()
+        self._analysis_update_timer.start()
 
     def _update_analysis_plots(self):
         """Update analysis plots."""
@@ -599,3 +620,11 @@ class BladePropertiesTab(QWidget):
         self.thickness_widget.set_thickness(properties.thickness)
         # Update other widgets...
         self._update_all()
+
+    def save_settings(self, settings: QSettings) -> None:
+        settings.setValue("blade_properties_tab/splitter_sizes", self.main_splitter.sizes())
+
+    def restore_settings(self, settings: QSettings) -> None:
+        sizes = settings.value("blade_properties_tab/splitter_sizes")
+        if sizes:
+            self.main_splitter.setSizes([int(size) for size in sizes])

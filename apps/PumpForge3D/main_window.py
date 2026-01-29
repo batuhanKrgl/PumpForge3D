@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QTabWidget, QSplitter, QStatusBar, QMessageBox,
     QToolBar, QApplication, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSettings
 from PySide6.QtGui import QIcon, QKeySequence, QAction, QUndoStack
+
+import logging
 
 from pumpforge3d_core.geometry.inducer import InducerDesign
 
@@ -138,6 +140,15 @@ QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus {
     border-color: #89b4fa;
 }
 
+QLineEdit[error="true"], QDoubleSpinBox[error="true"], QSpinBox[error="true"], QComboBox[error="true"] {
+    border: 1px solid #f38ba8;
+    background-color: #3a1f2d;
+}
+
+QTableWidget[error="true"] {
+    border: 1px solid #f38ba8;
+}
+
 QCheckBox {
     color: #cdd6f4;
     spacing: 8px;
@@ -245,7 +256,11 @@ class MainWindow(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
+        self._settings = QSettings("PumpForge3D", "PumpForge3D")
+        self._settings_restored = False
+        self._logger = logging.getLogger(__name__)
+
         self.setWindowTitle("PumpForge3D — Inducer Meridional Designer")
         self.setMinimumSize(1400, 900)
         
@@ -264,9 +279,7 @@ class MainWindow(QMainWindow):
         self._setup_toolbar()
         self._setup_menu()
         self._setup_connections()
-        
-        # Show maximized on startup
-        self.showMaximized()
+        self._restore_settings()
     
     def _setup_ui(self):
         """Create the main UI layout."""
@@ -286,6 +299,8 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setMinimumWidth(520)
         self.tab_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tab_widget.setAccessibleName("Main tabs")
+        self.tab_widget.setAccessibleDescription("Main navigation tabs for design, blade properties, and export.")
         
         # Design tab
         self.design_tab = DesignTab(self.design, undo_stack=self.undo_stack)
@@ -310,11 +325,15 @@ class MainWindow(QMainWindow):
         # 3D Viewer
         self.viewer_3d = Viewer3DWidget(self.design)
         self.viewer_3d.setMinimumHeight(320)
+        self.viewer_3d.setAccessibleName("3D viewer")
+        self.viewer_3d.setAccessibleDescription("3D visualization of the inducer geometry.")
         right_splitter.addWidget(self.viewer_3d)
         
         # Object visibility list
         self.object_list = ObjectVisibilityList()
         self.object_list.setMinimumHeight(160)
+        self.object_list.setAccessibleName("Object visibility list")
+        self.object_list.setAccessibleDescription("Toggle visibility for geometry components.")
         right_splitter.addWidget(self.object_list)
         
         # Set right splitter proportions (80% viewer, 20% list)
@@ -342,6 +361,7 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+        self.status_bar.setAccessibleName("Status bar")
     
     def _setup_toolbar(self):
         """Create the toolbar with undo/redo buttons."""
@@ -353,12 +373,14 @@ class MainWindow(QMainWindow):
         self.undo_action = self.undo_stack.createUndoAction(self, "&Undo")
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setText("↶ Undo")
+        self.undo_action.setStatusTip("Undo the last change")
         toolbar.addAction(self.undo_action)
         
         # Redo action
         self.redo_action = self.undo_stack.createRedoAction(self, "&Redo")
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         self.redo_action.setText("↷ Redo")
+        self.redo_action.setStatusTip("Redo the last change")
         toolbar.addAction(self.redo_action)
         
         toolbar.addSeparator()
@@ -429,7 +451,12 @@ class MainWindow(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
-        
+
+        help_action = QAction("&Help", self)
+        help_action.setShortcut(QKeySequence("F1"))
+        help_action.triggered.connect(self._show_help)
+        help_menu.addAction(help_action)
+
         about_action = QAction("&About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -453,6 +480,7 @@ class MainWindow(QMainWindow):
         # Blade properties -> inducer binding
         self.blade_binder = BladePropertiesBinder(self.blade_properties_tab, self.state, self)
         self.blade_binder.connect_signals()
+        self.state.validation_failed.connect(self._on_state_validation_failed)
     
     def _on_geometry_changed(self):
         """Handle geometry change from design tab."""
@@ -463,6 +491,7 @@ class MainWindow(QMainWindow):
             self._viewer_needs_refresh = True
         self.status_bar.showMessage("Geometry updated")
         self.design_changed.emit()
+        self._logger.info("Geometry updated from design tab.")
     
     def _on_dimensions_changed(self):
         """Handle main dimensions change."""
@@ -473,9 +502,11 @@ class MainWindow(QMainWindow):
             self._viewer_needs_refresh = True
         self.status_bar.showMessage("Dimensions updated")
         self.design_changed.emit()
+        self._logger.info("Main dimensions updated.")
     
     def _on_design_imported(self, design: InducerDesign):
         """Handle design import."""
+        self._logger.info("Design imported: %s", design.name)
         self.design = design
         self.undo_stack.clear()
         
@@ -488,6 +519,7 @@ class MainWindow(QMainWindow):
     
     def _on_visibility_changed(self, name: str, visible: bool):
         """Handle object visibility toggle."""
+        self._logger.debug("Visibility toggle: %s=%s", name, visible)
         self.viewer_3d.set_object_visibility(name, visible)
     
     def _on_tab_changed(self, index: int):
@@ -525,9 +557,11 @@ class MainWindow(QMainWindow):
 
             if 0 <= index < len(tab_names):
                 self.status_bar.showMessage(f"{tab_names[index]} tab")
+                self._logger.debug("Tab changed to %s.", tab_names[index])
     
     def _new_design(self):
         """Create a new design."""
+        self._logger.info("New design requested.")
         reply = QMessageBox.question(
             self, "New Design",
             "Create a new design? Unsaved changes will be lost.",
@@ -542,10 +576,12 @@ class MainWindow(QMainWindow):
     
     def _open_design(self):
         """Open a design file."""
+        self._logger.info("Open design action triggered.")
         self.export_tab.import_design()
     
     def _save_design(self):
         """Save the current design."""
+        self._logger.info("Save design action triggered.")
         self.export_tab.export_json()
     
     def _fit_view(self):
@@ -562,6 +598,21 @@ class MainWindow(QMainWindow):
             self.showMaximized()
         else:
             self.showFullScreen()
+
+    def _show_help(self):
+        """Show a help placeholder dialog."""
+        self._logger.info("Help dialog opened.")
+        QMessageBox.information(
+            self, "PumpForge3D Help",
+            "<h3>PumpForge3D Help</h3>"
+            "<p>Keyboard shortcuts:</p>"
+            "<ul>"
+            "<li><b>Ctrl+O</b>: Open design</li>"
+            "<li><b>Ctrl+S</b>: Save design</li>"
+            "<li><b>F1</b>: Help</li>"
+            "</ul>"
+            "<p>Editing policy: changes are committed on Enter or focus-out.</p>"
+        )
     
     def _show_about(self):
         """Show the about dialog."""
@@ -580,3 +631,33 @@ class MainWindow(QMainWindow):
             "<li>Versioned JSON export</li>"
             "</ul>"
         )
+
+    def _on_state_validation_failed(self, message: str) -> None:
+        self.status_bar.showMessage(f"Validation error: {message}")
+        self._logger.warning("Validation error: %s", message)
+
+    def _restore_settings(self) -> None:
+        if self._settings_restored:
+            return
+        geometry = self._settings.value("main_window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        else:
+            self.showMaximized()
+        splitter_sizes = self._settings.value("main_window/splitter_sizes")
+        if splitter_sizes:
+            self.main_splitter.setSizes([int(size) for size in splitter_sizes])
+        right_sizes = self._settings.value("main_window/right_splitter_sizes")
+        if right_sizes:
+            self.right_splitter.setSizes([int(size) for size in right_sizes])
+        self.design_tab.restore_settings(self._settings)
+        self.blade_properties_tab.restore_settings(self._settings)
+        self._settings_restored = True
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._settings.setValue("main_window/geometry", self.saveGeometry())
+        self._settings.setValue("main_window/splitter_sizes", self.main_splitter.sizes())
+        self._settings.setValue("main_window/right_splitter_sizes", self.right_splitter.sizes())
+        self.design_tab.save_settings(self._settings)
+        self.blade_properties_tab.save_settings(self._settings)
+        super().closeEvent(event)

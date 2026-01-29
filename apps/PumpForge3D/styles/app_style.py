@@ -1,6 +1,6 @@
 """Shared UI styling helpers for PumpForge3D tabs and widgets."""
 
-from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QLabel, QPushButton, QGroupBox
+from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QLabel, QPushButton, QGroupBox, QTableWidget
 
 
 GROUP_HEADER_STYLE = """
@@ -25,6 +25,46 @@ FORM_LABEL_STYLE = """
         font-size: 11px;
         font-weight: 600;
         padding: 2px 4px;
+    }
+"""
+
+PLAIN_LABEL_STYLE = """
+    QLabel[role="plain"] {
+        color: #cdd6f4;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 4px;
+        background: transparent;
+        border: none;
+    }
+"""
+
+INPUT_TABLE_STYLE = """
+    QTableWidget {
+        background-color: #1e1e2e;
+        color: #cdd6f4;
+        gridline-color: #45475a;
+        border: 1px solid #45475a;
+        border-radius: 4px;
+        font-size: 11px;
+    }
+    QTableWidget::item {
+        padding: 6px;
+        text-align: center;
+    }
+    QTableWidget::item:hover {
+        background-color: #313244;
+    }
+    QTableWidget::item:selected {
+        background-color: #45475a;
+    }
+    QHeaderView::section {
+        background-color: #313244;
+        color: #cdd6f4;
+        padding: 6px;
+        border: 1px solid #45475a;
+        font-weight: bold;
+        font-size: 10px;
     }
 """
 
@@ -101,6 +141,16 @@ def apply_form_label_style(label: QLabel) -> None:
         }
         """
     )
+
+
+def apply_plain_label_style(label: QLabel) -> None:
+    label.setProperty("role", "plain")
+    label.setAutoFillBackground(False)
+    label.setStyleSheet(PLAIN_LABEL_STYLE)
+
+
+def apply_input_table_style(table: QTableWidget) -> None:
+    table.setStyleSheet(INPUT_TABLE_STYLE)
 
 
 def apply_numeric_spinbox_style(spinbox: QAbstractSpinBox) -> None:
